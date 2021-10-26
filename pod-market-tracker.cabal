@@ -1,0 +1,96 @@
+cabal-version:      2.4
+name:               pod-market-tracker
+version:            0.1.0.0
+
+-- A short (one-line) description of the package.
+-- synopsis:
+
+-- A longer description of the package.
+-- description:
+
+-- A URL where users can report bugs.
+-- bug-reports:
+
+-- The license under which the package is released.
+-- license:
+author:             Enrico Bandiera
+maintainer:         enrico.bandiera@mondora.com
+
+-- A copyright notice.
+-- copyright:
+-- category:
+extra-source-files: CHANGELOG.md
+
+library
+    exposed-modules:  Utils.Aeson
+                    , PoD.Parser
+                    , PoD.Types
+                    , PoD.Api
+                    , PoD.Rendering
+                    
+                    , Telegram.Bot.Api.Types
+                    , Telegram.Bot.Api.Client
+                    , Telegram.Bot.Bot
+
+                    , App.Config
+                    , App.Monad
+                    , App.Database
+                    , App.Logging
+
+    -- Modules included in this library but not exported.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    build-depends:    base ^>=4.15.0.0
+                     , text
+                     , text-show
+                     , containers
+                     , time
+                     , aeson
+                     , microlens-platform
+                     , parsec
+                     , base64-bytestring
+                     , bytestring
+                     , wreq
+                     , http-types
+                     , http-client
+                     , http-client-tls
+                     , uri-encode
+                     , unliftio
+                     , FontyFruity
+                     , JuicyPixels
+                     , Rasterific
+                     , transformers
+                     , iso8601-time
+                     , postgresql-simple
+                     , data-default
+                     , data-flags
+                     , di
+                     , generic-lens
+                     , lens-aeson
+                     , mtl
+                     , fast-logger
+                     , optparse-applicative
+                     
+    hs-source-dirs:   src
+    default-language: Haskell2010
+
+executable pod-market-tracker
+    main-is:          Main.hs
+
+    -- Modules included in this executable, other than Main.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    build-depends:
+        base ^>=4.15.0.0,
+        pod-market-tracker,
+        text,
+        fast-logger,
+        optparse-applicative,
+        FontyFruity
+
+    hs-source-dirs:   app
+    default-language: Haskell2010
