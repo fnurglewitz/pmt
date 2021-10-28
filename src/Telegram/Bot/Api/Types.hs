@@ -87,7 +87,8 @@ data Message = Message
     date :: Integer,
     chat :: Chat,
     text :: Maybe Text,
-    entities :: Maybe [MessageEntity]
+    entities :: Maybe [MessageEntity],
+    replyMarkup :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show, Generic)
 
@@ -100,10 +101,11 @@ instance FromJSON Message where
       <*> v .: "chat"
       <*> v .:? "text"
       <*> v .:? "entities"
+      <*> v .:? "reply_markup"
 
 instance ToJSON Message where
   toJSON Message {..} =
-    object $ Prelude.filter ((/= Null) . snd) ["message_id" .= messageId, "from" .= from, "date" .= date, "chat" .= chat, "text" .= text, "entities" .= entities]
+    object $ Prelude.filter ((/= Null) . snd) ["message_id" .= messageId, "from" .= from, "date" .= date, "chat" .= chat, "text" .= text, "entities" .= entities, "reply_markup" .= replyMarkup]
 
 data MessageEntity = MessageEntity
   { eType :: Text,
@@ -170,9 +172,7 @@ instance ToJSON Chat where
 data SendPhotoRequest = SendPhotoRequest
   { pChatId :: Text,
     content :: B.ByteString,
-    want :: Text,
-    url :: Text,
-    tradeId :: Text
+    pInlineKeyboard :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show)
 
@@ -185,10 +185,23 @@ data SendMessageRequest = SendMessageRequest
   }
   deriving (Eq, Show)
 
+data EditMessageRequest = EditMessageRequest
+  { eChatId :: Text,
+    eMessageId :: Text,
+    eText :: Text,
+    eInlineKeyboard :: Maybe InlineKeyboardMarkup
+  }
+  deriving (Eq, Show)
+
 data InlineKeyboardMarkup = InlineKeyboardMarkup
   { inlineKeyboard :: [[InlineKeyboardButton]]
   }
   deriving (Eq, Show, Generic)
+
+instance FromJSON InlineKeyboardMarkup where
+  parseJSON = withObject "InlineKeyboardMarkup" $ \v ->
+    InlineKeyboardMarkup
+      <$> v .: "inline_keyboard"
 
 instance ToJSON InlineKeyboardMarkup where
   toJSON (InlineKeyboardMarkup ik) =
@@ -200,6 +213,13 @@ data InlineKeyboardButton = InlineKeyboardButton
     btnCbkData :: Maybe Text
   }
   deriving (Eq, Show, Generic)
+
+instance FromJSON InlineKeyboardButton where
+  parseJSON = withObject "InlineKeyboardButton" $ \v ->
+    InlineKeyboardButton
+      <$> v .: "text"
+      <*> v .:? "url"
+      <*> v .:? "callback_data"
 
 instance ToJSON InlineKeyboardButton where
   toJSON (InlineKeyboardButton txt url dat) =

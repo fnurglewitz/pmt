@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Telegram.Bot.Bot (startBot) where
+module Telegram.Bot.Bot where
 
 import App.Config
 import App.Database (DB (listTrackRequest))
@@ -16,19 +16,19 @@ import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Functor ((<&>))
-import Data.List (find, splitAt)
+import Data.List (find, intersperse, nub, splitAt)
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.PostgreSQL.Simple
-import qualified Options.Applicative.Help as T
 import PoD.Api
 import PoD.Parser
-import PoD.Types (Hit (Hit, _characterName, _createdAt, _difficulty, _iQuality, _iType, _itemJson, _itemProperties, _lastInGame, _lastOnline, _lvlReq, _name, _note, _prf, _qualityCode, _tradeId, _userId, _username), SearchResponse (SearchResponse, _hits))
+import PoD.Types (Hit (Hit, _characterName, _createdAt, _difficulty, _iQuality, _iType, _itemJson, _itemProperties, _lastInGame, _lastOnline, _lvlReq, _name, _note, _prf, _qualityCode, _tradeId, _userId, _username), ItemProperty (..), SearchResponse (SearchResponse, _hits))
 import System.Log.FastLogger
 import Telegram.Bot.Api.Client
 import Telegram.Bot.Api.Types
+import Utils.Tabular (priceCheckTable)
 
 startBot :: AppCtx Connection -> IO ()
 startBot ctx@AppCtx {..} = forever $ do
@@ -43,7 +43,7 @@ runBot = do
   AppCtx {..} <- ask
   mbUpdate <- getUpdate
   case selectAction =<< mbUpdate of
-    Nothing -> logError "No update found, fuck you" -- throwError "No update found, fuck you"
+    Nothing -> throwError "No update found, fuck you"
     Just x -> x
   where
     selectAction (Update _ msg cbk) = (handleMessage <$> msg) <|> (handleCallback <$> cbk)
@@ -68,12 +68,16 @@ handleMessage m@Message {..} = case mbCommand of
     mbCommand = getEntity "bot_command" m >> text <&> head . T.words
 
 handleCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Text -> Message -> m ()
+-- Track requests
 handleCommand "/track" m = trackCommand m
 handleCommand "/list" m = listTrackCommand m
+-- Price checks
 handleCommand "/addpc" m = addPriceCheckCommand m
 handleCommand "/pc" m@Message {..} = priceCheckCommand m
 handleCommand "/delpc" m@Message {..} = deletePriceCheckCommand m
 handleCommand "/listpc" m@Message {..} = listPriceCheckCommand m
+handleCommand "/confpc" m@Message {..} = configurePriceCheckCommand m
+-- none
 handleCommand cmd m@Message {..} = replyToMessage m (T.append "Unknown command: " cmd)
 
 trackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
@@ -105,6 +109,7 @@ listTrackCommand m@Message {..} = do
 
 priceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
 priceCheckCommand m@Message {..} = do
+  ctx@(AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font) <- ask
   case text >>= listToMaybe . drop 1 . T.words of
     Nothing -> replyToMessage m "No price check name provided"
     Just pcName -> do
@@ -113,10 +118,10 @@ priceCheckCommand m@Message {..} = do
         Nothing -> replyToMessage m (T.append "No price check found with name: " pcName)
         Just DB.PriceCheck {..} -> do
           SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
-          let msg = foldl T.append "Prices found:\n" (hitToLine <$> _hits)
+          let msg = "<pre>" `T.append` (priceCheckTable $ hitToRow (fromMaybe "" pcConfig) <$> _hits) `T.append` "</pre>"
           replyToMessage m msg
   where
-    hitToLine Hit {..} = _username `T.append` ": " `T.append` _note `T.append` "\n"
+    hitToRow cfg hit@Hit {..} = (_username, [applyConfig cfg hit, _note])
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
 
 addPriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
@@ -129,8 +134,13 @@ addPriceCheckCommand m@Message {..} = case urlEntity of
     case parsePodUri url of
       Left err -> replyToMessage m (T.append "Could not parse url: " err)
       Right query -> do
-        DB.savePc $ DB.PriceCheck Nothing userIdTxt notes url query
-        replyToMessage m "PriceCheck saved"
+        pcs <- DB.listPc userIdTxt
+        if length pcs >= 10
+          then do
+            replyToMessage m "Cannot add, maximum number of price checks reached (10)"
+          else do
+            DB.savePc $ DB.PriceCheck Nothing userIdTxt notes url query Nothing
+            replyToMessage m "PriceCheck saved"
   where
     urlEntity = getEntity "url" m
     substr o l t = T.take l $ T.drop o t
@@ -161,6 +171,26 @@ listPriceCheckCommand m@Message {..} = do
     toListElem DB.PriceCheck {..} = (T.pack . show $ fromMaybe (-1) pcId) `T.append` ". <a href=\"" `T.append` pcUrl `T.append` "\">" `T.append` pcName `T.append` "</a>\n"
     toKeyboardBtn DB.PriceCheck {..} = InlineKeyboardButton (T.append "deletePc: " pcName) Nothing (Just ("deletePc," `T.append` pcUserId `T.append` "," `T.append` pcName))
 
+configurePriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
+configurePriceCheckCommand m@Message {..} = do
+  ctx@(AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font) <- ask
+  case text >>= listToMaybe . drop 1 . T.words of
+    Nothing -> replyToMessage m "No price check name provided"
+    Just pcName -> do
+      mbPc <- DB.findPc userIdTxt pcName
+      case mbPc of
+        Nothing -> replyToMessage m (T.append "No price check found with name: " pcName)
+        Just DB.PriceCheck {..} -> do
+          SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
+          let txtToBtn (code, label) = InlineKeyboardButton {btnText = label, btnUrl = Nothing, btnCbkData = Just ("confPc," `T.append` pcUserId `T.append` "," `T.append` pcName `T.append` "," `T.append` code)}
+              resetBtnRow = [InlineKeyboardButton {btnText = "RESET", btnUrl = Nothing, btnCbkData = Just ("confPc," `T.append` pcUserId `T.append` "," `T.append` pcName `T.append` "," `T.append` "RESET")}]
+              props = txtToBtn <$> (nub . concat $ hitToProps <$> _hits)
+              curCfg = fromMaybe "- Not configured -" pcConfig
+          replyToMessageWithKeyboard m ("Current configuration:\n" `T.append` curCfg) (InlineKeyboardMarkup $ resetBtnRow : listToMatrix 2 props)
+  where
+    hitToProps Hit {..} = ((,) <$> _itemPropertyCode <*> _itemPropertyLabel) <$> filter (\ItemProperty {..} -> isJust _itemPropertyValue) _itemProperties
+    userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
+
 handleCallback :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => CallbackQuery -> m ()
 handleCallback cbk@CallbackQuery {..} = do
   case cbkData of
@@ -168,16 +198,17 @@ handleCallback cbk@CallbackQuery {..} = do
     Just dat -> do
       let splitted = T.splitOn "," dat
           command = fromMaybe "" $ listToMaybe splitted
-      handleCallbackCommand command splitted
+      handleCallbackCommand command cbk splitted
   where
     uid = T.pack . show $ userId cbkFrom
 
-handleCallbackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Text -> [Text] -> m ()
-handleCallbackCommand "deletePc" params = deletePriceCheckCallback params
-handleCallbackCommand cmd _ = logError $ "Unknown callback command: " `T.append` cmd
+handleCallbackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Text -> CallbackQuery -> [Text] -> m ()
+handleCallbackCommand "deletePc" cbk params = deletePriceCheckCallback cbk params
+handleCallbackCommand "confPc" cbk params = configurePriceCheckCallback cbk params
+handleCallbackCommand cmd _ _ = logError $ "Unknown callback command: " `T.append` cmd
 
-deletePriceCheckCallback :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => [Text] -> m ()
-deletePriceCheckCallback params = do
+deletePriceCheckCallback :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => CallbackQuery -> [Text] -> m ()
+deletePriceCheckCallback _ params = do
   if length params /= 3
     then logError ("wrong number of parameters (" `T.append` (T.pack . show $ length params) `T.append` ") for command deletePc")
     else
@@ -185,8 +216,32 @@ deletePriceCheckCallback params = do
           pcName = params !! 2
        in DB.deletePc uid pcName
 
+configurePriceCheckCallback :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => CallbackQuery -> [Text] -> m ()
+configurePriceCheckCallback cbk@CallbackQuery {..} params = do
+  if length params /= 4
+    then logError ("wrong number of parameters (" `T.append` (T.pack . show $ length params) `T.append` ") for command deletePc")
+    else do
+      let uid = params !! 1
+          pcName = params !! 2
+          code = params !! 3
+      mbPc <- DB.findPc uid pcName
+      case mbPc of
+        Nothing -> logError (T.append "No price check found with name: " pcName)
+        Just DB.PriceCheck {..} -> do
+          let Chat {..} = maybe (Chat 0 "") chat cbkMessage
+              msgId = maybe 0 messageId cbkMessage
+              oldKb = replyMarkup =<< cbkMessage
+              newConf = updateCfg code pcConfig
+          DB.configurePc uid pcName newConf
+          editMessage $ EditMessageRequest (T.pack . show $ chatId) (T.pack . show $ msgId) ("Current configuration:\n" `T.append` fromMaybe "- Not configured -" newConf) oldKb
+  where
+    updateCfg :: Text -> Maybe Text -> Maybe Text
+    updateCfg "RESET" _ = Nothing
+    updateCfg code Nothing = Just code
+    updateCfg code (Just old) = Just $ old `T.append` "/" `T.append` code
+
 getEntity :: Text -> Message -> Maybe MessageEntity
-getEntity entityType (Message _ _ _ _ _ (Just entities)) = find (\MessageEntity {eType = t} -> t == entityType) entities
+getEntity entityType (Message _ _ _ _ _ (Just entities) _) = find (\MessageEntity {eType = t} -> t == entityType) entities
 getEntity _ _ = Nothing
 
 replyToMessage m@Message {..} txt = sendMessage $ SendMessageRequest (T.pack . show $ chatId chat) txt True (Just messageId) Nothing
@@ -198,3 +253,14 @@ listToMatrix _ [] = []
 listToMatrix n xs = row : listToMatrix n remaining
   where
     (row, remaining) = splitAt n xs
+
+-- TODO: redo this shit
+applyConfig :: Text -> Hit -> Text
+applyConfig cfg Hit {..} =
+  let codes = T.splitOn "/" cfg
+   in T.intercalate "/" $ go codes _itemProperties
+  where
+    go :: [Text] -> [ItemProperty] -> [Text]
+    go [] _ = []
+    go [code] ps = filter (/= T.empty) [fromMaybe "" $ _itemPropertyValue =<< find (\ItemProperty {..} -> code == _itemPropertyCode) ps]
+    go (c : cs) ps = go [c] ps ++ go cs ps

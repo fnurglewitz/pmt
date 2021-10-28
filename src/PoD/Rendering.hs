@@ -1,25 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module PoD.Rendering
-  ( TextBox (..),
-    renderHit,
-    renderImage,
-    headerSize,
-    propsSize,
-    blue,
-    white,
-    yellow,
-    orange,
-    gold,
-    red,
-    green,
-    normal,
-    eth,
-    black,
-    runeword,
-  )
-where
+module PoD.Rendering (renderHit) where
 
 import Codec.Picture (PixelRGBA8 (..), PngSavable (encodePng))
 import Control.Monad (foldM_)
@@ -111,36 +93,38 @@ boxHeight, boxWidth :: BoundingBox -> Float
 boxHeight BoundingBox {..} = abs _yMin + abs _yMax
 boxWidth BoundingBox {..} = abs _xMin + abs _xMax
 
+makeBoundingBox :: Font -> Dpi -> PointSize -> Text -> BoundingBox
+makeBoundingBox font dpi pointSize text = stringBoundingBox font dpi pointSize (T.unpack text)
+
+makeTextBox :: Font -> Dpi -> PointSize -> PixelRGBA8 -> Text -> Maybe TextBox
+makeTextBox f d s c t = Just $ TextBox f s c t (boxWidth $ makeBoundingBox f d s t) (boxHeight $ makeBoundingBox f d s t)
+
 toTextBoxes :: Font -> Dpi -> Hit -> [TextBox]
 toTextBoxes font dpi Hit {..} =
   let qColor = qualityColor $ _itemJson ^. nQuality
-      itemName = makeTextBox headerSize qColor $ T.toUpper $ _itemJson ^. nTitle
-      itemType = makeTextBox headerSize qColor $ T.toUpper $ _itemJson ^. nTag
-      defense = _itemJson ^. nDefense <&> T.toUpper >>= \def -> makeTextBox propsSize white $ T.append "DEFENSE: " def
+      itemName = makeTextBox font dpi headerSize qColor $ T.toUpper $ _itemJson ^. nTitle
+      itemType = makeTextBox font dpi headerSize qColor $ T.toUpper $ _itemJson ^. nTag
+      defense = _itemJson ^. nDefense <&> T.toUpper >>= \def -> makeTextBox font dpi propsSize white $ T.append "DEFENSE: " def
       damage = do
         min <- _itemJson ^. nDamageMinimum
         max <- _itemJson ^. nDamageMaximum
         let str = foldr T.append "" ["DAMAGE: ", min, "-", max]
-        makeTextBox propsSize white str
+        makeTextBox font dpi propsSize white str
       durability = do
         min <- _itemJson ^. nDurability
         max <- _itemJson ^. nDurabilityMaximum
         let str = foldr T.append "" ["DURABILITY: ", min, " OF ", max]
-        makeTextBox propsSize white str
-      itemLvl = makeTextBox propsSize white $ T.append "ITEM LEVEL: " (_itemJson ^. nItemLevel)
-      levelReq = makeTextBox propsSize white $ T.append "REQUIRED LEVEL: " (T.pack $ show $ _itemJson ^. nLevelReq)
+        makeTextBox font dpi propsSize white str
+      itemLvl = makeTextBox font dpi propsSize white $ T.append "ITEM LEVEL: " (_itemJson ^. nItemLevel)
+      levelReq = makeTextBox font dpi propsSize white $ T.append "REQUIRED LEVEL: " (T.pack $ show $ _itemJson ^. nLevelReq)
    in fmap fromJust $ filter isJust [itemName, itemType, defense, damage, durability, itemLvl, levelReq] ++ propList
   where
-    box :: PointSize -> Text -> BoundingBox
-    box pointSize text = stringBoundingBox font dpi pointSize (T.unpack text)
-    makeTextBox :: PointSize -> PixelRGBA8 -> Text -> Maybe TextBox
-    makeTextBox s c t = Just $ TextBox font s c t (boxWidth $ box s t) (boxHeight $ box s t)
     propertiesToTextBoxes :: Font -> Dpi -> [Text] -> [Maybe TextBox]
     propertiesToTextBoxes font dpi lines = f <$> lines
       where
         f txt
-          | "Corrupted" `T.isSuffixOf` txt = makeTextBox propsSize red "CORRUPTED"
-          | otherwise = makeTextBox propsSize blue txt'
+          | "Corrupted" `T.isSuffixOf` txt = makeTextBox font dpi propsSize red "CORRUPTED"
+          | otherwise = makeTextBox font dpi propsSize blue txt'
           where
             txt' = T.toUpper txt
     propList = propertiesToTextBoxes font dpi (_itemJson ^. nPropertyList)
@@ -162,9 +146,6 @@ drawLine xMax oldY TextBox {..} = drawText $> y
     x = (xMax - bWidth) / 2
     drawText = withTexture (uniformTexture bColor) $ printTextAt bFont bPointSize (V2 x y) (T.unpack bText)
 
-renderHit :: Font -> Int -> Hit -> B.ByteString
-renderHit font dpi hit = renderImage font dpi (toTextBoxes font dpi hit)
-
 renderImage :: Font -> Int -> [TextBox] -> B.ByteString
 renderImage font dpi boxes =
   BL.toStrict $
@@ -175,6 +156,9 @@ renderImage font dpi boxes =
     w = imgWidth boxes
     h = imgHeight boxes
     drawLine' = drawLine (fromIntegral w)
+
+renderHit :: Font -> Int -> Hit -> B.ByteString
+renderHit font dpi hit = renderImage font dpi (toTextBoxes font dpi hit)
 
 {-
 renderImage' :: Font -> Int -> Hit -> B.ByteString

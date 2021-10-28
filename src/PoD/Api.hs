@@ -26,8 +26,16 @@ import PoD.Types (Hit (..), SearchQuery (SearchQuery), SearchResponse (SearchRes
 podTradeSession :: IO S.Session
 podTradeSession = do
   sess <- S.newSession
-  S.get sess "https://beta.pathofdiablo.com/trade-search"
+  S.getWith opts sess "https://beta.pathofdiablo.com/trade-search"
   return sess
+  where
+    opts =
+      defaults
+        & header "sec-ch-ua" .~ ["\"Google Chrome\";v=\"89\", \"Chromium\";v=\"89\", \";Not A Brand\";v=\"99\""]
+        & header "accept" .~ ["application/json, text/plain, */*"]
+        & header "sec-ch-ua-mobile" .~ ["?0"]
+        & header "user-agent" .~ ["Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36"]
+        & header "accept-language" .~ ["en-GB,en;q=0.9"]
 
 doSearch :: SearchQuery -> IO SearchResponse
 doSearch q = do

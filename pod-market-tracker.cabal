@@ -23,6 +23,7 @@ extra-source-files: CHANGELOG.md
 
 library
     exposed-modules:  Utils.Aeson
+                    , Utils.Tabular
                     , PoD.Parser
                     , PoD.Types
                     , PoD.Api
@@ -72,6 +73,7 @@ library
                      , mtl
                      , fast-logger
                      , optparse-applicative
+                     , tabular
                      
     hs-source-dirs:   src
     default-language: Haskell2010

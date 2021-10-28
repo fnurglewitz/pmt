@@ -43,6 +43,7 @@ class (Monad m) => DB m where
   findPc :: Text -> Text -> m (Maybe PriceCheck)
   listPc :: Text -> m [PriceCheck]
   deletePc :: Text -> Text -> m ()
+  configurePc :: Text -> Text -> Maybe Text -> m ()
 
 instance (MonadIO m) => DB (AppM Connection e m) where
   saveTrackRequest req@TrackRequest {..} = do
@@ -110,15 +111,20 @@ instance (MonadIO m) => DB (AppM Connection e m) where
 
   findPc uid n = do
     conn <- asks db
-    liftIO $ query conn "select pc_id, user_id, name, url, search_query from public.price_check where user_id = ? and name = ?" (uid, n) <&> listToMaybe
+    liftIO $ query conn "select pc_id, user_id, name, url, search_query, config from public.price_check where user_id = ? and name = ?" (uid, n) <&> listToMaybe
 
   listPc uid = do
     conn <- asks db
-    liftIO $ query conn "select pc_id, user_id, name, url, search_query from public.price_check where user_id = ?" [uid]
+    liftIO $ query conn "select pc_id, user_id, name, url, search_query, config from public.price_check where user_id = ?" [uid]
 
-  deletePc uid n = do
+  deletePc uid name = do
     conn <- asks db
-    liftIO $ execute conn "delete from public.price_check where user_id = ? and name = ?" (uid, n)
+    liftIO $ execute conn "delete from public.price_check where user_id = ? and name = ?" (uid, name)
+    return ()
+
+  configurePc uid name config = do
+    conn <- asks db
+    liftIO $ execute conn "update public.price_check set config = ? where user_id = ? and name = ?" (config, uid, name)
     return ()
 
 data TradeListing = TradeListing
@@ -162,6 +168,7 @@ data PriceCheck = PriceCheck
     pcUserId :: Text,
     pcName :: Text,
     pcUrl :: Text,
-    pcSearchQuery :: SearchQuery
+    pcSearchQuery :: SearchQuery,
+    pcConfig :: Maybe Text
   }
   deriving (Generic, FromRow, ToRow, Show)

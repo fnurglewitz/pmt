@@ -32,6 +32,7 @@ import Telegram.Bot.Api.Types
 class (Monad m) => TelegramClient m where
   getUpdate :: m (Maybe Update)
   sendMessage :: SendMessageRequest -> m ()
+  editMessage :: EditMessageRequest -> m ()
   sendPhoto :: SendPhotoRequest -> m ()
 
 instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
@@ -76,7 +77,16 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
         partReplyTo = maybeToList $ partText "reply_to_message_id" . T.pack . show <$> mReplyToMsgId
         partParseMode = partText "parse_mode" "HTML"
         partKb = maybeToList $ partText "reply_markup" . decodeUtf8 . BL.toStrict . encode <$> mInlineKeyboard
-    liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/sendMessage"])) ([partChatId, partTxt, partDisableNotification, partParseMode] ++ partReplyTo ++ partKb)
+    liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/sendMessage"])) $ [partChatId, partTxt, partDisableNotification, partParseMode] ++ partReplyTo ++ partKb
+    return ()
+
+  editMessage EditMessageRequest {..} = do
+    TelegramConfig tgBaseUrl (Token token) <- asks $ telegramCfg . config
+    let partChatId = partText "chat_id" eChatId
+        partMsgId = partText "message_id" eMessageId
+        partTxt = partText "text" eText
+        partKb = maybeToList $ partText "reply_markup" . decodeUtf8 . BL.toStrict . encode <$> eInlineKeyboard
+    liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/editMessageText"])) $ [partChatId, partMsgId, partTxt] ++ partKb
     return ()
 
   sendPhoto SendPhotoRequest {..} = do
@@ -84,6 +94,7 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
     let partChatId = partText "chat_id" pChatId
         -- partCaption = partText "caption" want
         partPhoto = partBS "photo" content & (partFileName ?~ "photo.png") & (partContentType ?~ "image/png")
-        partKb = partText "reply_markup" $ decodeUtf8 $ BL.toStrict $ encode (InlineKeyboardMarkup [[InlineKeyboardButton want (Just url) Nothing], [InlineKeyboardButton "stop tracking" Nothing (Just (T.append "delete:" tradeId))]])
-    liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/sendPhoto"])) [partChatId, partPhoto, partKb]
+        partKb = maybeToList $ partText "reply_markup" . decodeUtf8 . BL.toStrict . encode <$> pInlineKeyboard
+    -- partKb = partText "reply_markup" $ decodeUtf8 $ BL.toStrict $ encode (InlineKeyboardMarkup [[InlineKeyboardButton want (Just url) Nothing], [InlineKeyboardButton "stop tracking" Nothing (Just (T.append "delete:" tradeId))]])
+    liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/sendPhoto"])) $ [partChatId, partPhoto] ++ partKb
     return ()
