@@ -34,6 +34,8 @@ class (Monad m) => DB m where
   saveTrackRequest :: TrackRequest -> m ()
   listTrackRequest :: Text -> m [TrackRequest]
   deleteTrackRequest :: Text -> Integer -> m ()
+  findOneToTrack :: m (Maybe TrackRequest)
+  setAsTracked :: Text -> Integer -> m ()
 
   saveTrade :: Hit -> m ()
   findTrade :: Text -> m [TradeListing]
@@ -68,6 +70,16 @@ instance (MonadIO m) => DB (AppM Connection e m) where
         conn
         "delete from public.track_request where user_id ? and id = ?"
         (userId, requestId)
+    return ()
+
+  findOneToTrack = do
+    conn <- asks db
+    r <- liftIO $ query_ conn "select request_id, user_id, pod_url, search_query, notes, tracked, last_track_time, created_at from public.track_request where tracked = false limit 1"
+    return $ listToMaybe r
+
+  setAsTracked uid id = do
+    conn <- asks db
+    liftIO $ execute conn "update public.track_request set tracked = true where user_id = ? and request_id = ?" (uid, id)
     return ()
 
   saveTrade hit@Hit {..} = do

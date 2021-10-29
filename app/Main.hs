@@ -11,10 +11,13 @@ import App.Database
 import App.Config
 import App.Logging
 
+import Tracker.Tracker
+
 import Telegram.Bot.Bot
 
 import Control.Applicative ((<|>))
 import Control.Exception (throwIO)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
 import Control.Monad
 import Data.Semigroup ((<>))
@@ -31,6 +34,7 @@ main = do
   loggerSet <- getLoggerSet
   luid <- newMVar (0 :: Integer)
   let ctx = AppCtx cfg loggerSet conn luid font
+  forkIO $ startTracker ctx
   print cfg
   startBot ctx
   where

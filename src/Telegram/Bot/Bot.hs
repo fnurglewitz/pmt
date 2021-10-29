@@ -5,7 +5,6 @@
 module Telegram.Bot.Bot where
 
 import App.Config
-import App.Database (DB (listTrackRequest))
 import qualified App.Database as DB
 import App.Logging
 import App.Monad
@@ -14,6 +13,11 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, newMVar, putMVar, takeMVar)
 import Control.Exception
 import Control.Monad.Except
+  ( MonadError (throwError),
+    MonadIO (..),
+    forever,
+    runExceptT,
+  )
 import Control.Monad.Reader
 import Data.Functor ((<&>))
 import Data.List (find, intersperse, nub, splitAt)
@@ -31,12 +35,14 @@ import Telegram.Bot.Api.Types
 import Utils.Tabular (priceCheckTable)
 
 startBot :: AppCtx Connection -> IO ()
-startBot ctx@AppCtx {..} = forever $ do
-  r <- runExceptT $ runReaderT (runAppM runBot) ctx
-  case r of
-    Left err -> logGeneric logger "ERROR" config err
-    Right x -> pure x
-  threadDelay 1000000
+startBot ctx@AppCtx {..} = do
+  logGeneric logger "INFO" config "Starting telegram bot"
+  forever $ do
+    r <- runExceptT $ runReaderT (runAppM runBot) ctx
+    case r of
+      Left err -> logGeneric logger "ERROR" config err
+      Right x -> pure x
+    threadDelay 1000000
 
 runBot :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => m ()
 runBot = do
@@ -100,7 +106,7 @@ trackCommand m@Message {..} = case urlEntity of
 
 listTrackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
 listTrackCommand m@Message {..} = do
-  t <- listTrackRequest $ (T.pack . show) (maybe 0 userId from)
+  t <- DB.listTrackRequest $ (T.pack . show) (maybe 0 userId from)
   let msgTxt = Prelude.foldl T.append "Track requests:\n" (toListElem <$> t)
   replyToMessage m msgTxt
   where
