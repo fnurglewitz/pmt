@@ -48,7 +48,7 @@ import PoD.Types
     nItemLevel,
     nLevelReq,
     nPropertyList,
-    nQuality,
+    nQualityCode,
     nTag,
     nTitle,
   )
@@ -81,13 +81,23 @@ runeword = PixelRGBA8 158 135 73 255
 
 qualityColor :: Text -> PixelRGBA8 -- TODO: use nQualityCode ?
 qualityColor "Unique" = gold
+qualityColor "q_unique" = gold
 qualityColor "Set" = green
+qualityColor "q_set" = green
 qualityColor "Rare" = yellow
+qualityColor "q_rare" = yellow
 qualityColor "Magic" = blue
+qualityColor "q_magic" = blue
 qualityColor "Superior" = eth
+qualityColor "q_high" = eth
 qualityColor "Normal" = normal
+qualityColor "q_normal" = normal
+qualityColor "Craft" = orange
 qualityColor "Crafted" = orange
-qualityColor "Runeword" = runeword -- TODO: bugged, runewords quality is set as Superior, should check qualityCode instead
+qualityColor "q_crafted" = orange
+qualityColor "Runeword" = runeword
+qualityColor "q_runeword" = runeword
+
 
 boxHeight, boxWidth :: BoundingBox -> Float
 boxHeight BoundingBox {..} = abs _yMin + abs _yMax
@@ -101,7 +111,7 @@ makeTextBox f d s c t = Just $ TextBox f s c t (boxWidth $ makeBoundingBox f d s
 
 toTextBoxes :: Font -> Dpi -> Hit -> [TextBox]
 toTextBoxes font dpi Hit {..} =
-  let qColor = qualityColor $ _itemJson ^. nQuality
+  let qColor = qualityColor $ _itemJson ^. nQualityCode
       itemName = makeTextBox font dpi headerSize qColor $ T.toUpper $ _itemJson ^. nTitle
       itemType = makeTextBox font dpi headerSize qColor $ T.toUpper $ _itemJson ^. nTag
       defense = _itemJson ^. nDefense <&> T.toUpper >>= \def -> makeTextBox font dpi propsSize white $ T.append "DEFENSE: " def
