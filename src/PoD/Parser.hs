@@ -37,6 +37,7 @@ import PoD.Types
     maxSockets,
     minSockets,
     nQuality,
+    nQualityCode,
     need,
     poster,
     properties,
@@ -222,7 +223,7 @@ hitToSearch :: Hit -> SearchQuery
 hitToSearch h@Hit {..} =
   foldr1 (<>) $
     ( set (searchFilter . item) [_name] $
-        set (searchFilter . quality) [h ^. itemJson . nQuality] $
+        set (searchFilter . quality) [normalizeQualityFilter $ h ^. itemJson . nQualityCode] $
           set (searchFilter . poster) _username $
             set
               (searchFilter . levelReq)
@@ -232,6 +233,25 @@ hitToSearch h@Hit {..} =
     propz
   where
     propz = itemPropToPartialSQ <$> _itemProperties
+    normalizeQualityFilter :: Text -> Text
+    normalizeQualityFilter "Unique" = "Unique"
+    normalizeQualityFilter "q_unique" = "Unique"
+    normalizeQualityFilter "Set" = "Set"
+    normalizeQualityFilter "q_set" = "Set"
+    normalizeQualityFilter "Rare" = "Rare"
+    normalizeQualityFilter "q_rare" = "Rare"
+    normalizeQualityFilter "Magic" = "Magic"
+    normalizeQualityFilter "q_magic" = "Magic"
+    normalizeQualityFilter "Superior" = "Superior"
+    normalizeQualityFilter "q_high" = "Superior"
+    normalizeQualityFilter "Normal" = "Normal"
+    normalizeQualityFilter "q_normal" = "Normal"
+    normalizeQualityFilter "Craft" = "Crafted"
+    normalizeQualityFilter "Crafted" = "Crafted"
+    normalizeQualityFilter "q_crafted" = "Crafted"
+    normalizeQualityFilter "Runeword" = "Runeword"
+    normalizeQualityFilter "q_runeword" = "Runeword"
+    normalizeQualityFilter f = f
 
 searchToUrl :: SearchQuery -> Text
 searchToUrl q@(SearchQuery SearchFilter {..}) =
