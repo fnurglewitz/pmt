@@ -19,6 +19,7 @@ import Control.Monad.Except
     runExceptT,
   )
 import Control.Monad.Reader
+import Data.Char (digitToInt)
 import Data.Functor ((<&>))
 import Data.List (find, intersperse, nub, splitAt)
 import Data.Maybe
@@ -211,6 +212,7 @@ handleCallback cbk@CallbackQuery {..} = do
 handleCallbackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Text -> CallbackQuery -> [Text] -> m ()
 handleCallbackCommand "deletePc" cbk params = deletePriceCheckCallback cbk params
 handleCallbackCommand "confPc" cbk params = configurePriceCheckCallback cbk params
+handleCallbackCommand "stopTracking" cbk params = deleteTrackRequestCallback cbk params
 handleCallbackCommand cmd _ _ = logError $ "Unknown callback command: " `T.append` cmd
 
 deletePriceCheckCallback :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => CallbackQuery -> [Text] -> m ()
@@ -245,6 +247,17 @@ configurePriceCheckCallback cbk@CallbackQuery {..} params = do
     updateCfg "RESET" _ = Nothing
     updateCfg code Nothing = Just code
     updateCfg code (Just old) = Just $ old `T.append` "/" `T.append` code
+
+deleteTrackRequestCallback :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => CallbackQuery -> [Text] -> m ()
+deleteTrackRequestCallback cbk params = do
+  if length params /= 3
+    then logError ("wrong number of parameters (" `T.append` (T.pack . show $ length params) `T.append` ") for command stopTracking")
+    else
+      let uid = params !! 1
+          trId = params !! 2
+       in DB.deleteTrackRequest uid (readDecimal trId)
+  where
+    readDecimal = T.foldl' (\a c -> a * 10 + toInteger (digitToInt c)) 0
 
 getEntity :: Text -> Message -> Maybe MessageEntity
 getEntity entityType (Message _ _ _ _ _ (Just entities) _) = find (\MessageEntity {eType = t} -> t == entityType) entities

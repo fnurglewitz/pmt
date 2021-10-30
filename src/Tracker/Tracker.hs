@@ -16,17 +16,16 @@ import Control.Monad.Reader
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time ( getCurrentTime )
 import Database.PostgreSQL.Simple
 import PoD.Api (doSearch)
-import PoD.Parser ( hitToSearch, searchToUrl )
+import PoD.Parser (hitToSearch, searchToUrl)
 import PoD.Rendering (renderHit)
 import PoD.Types (Hit (..), SearchResponse (SearchResponse, _hits))
 import System.Random
 import System.Random.Stateful
-import System.Random.Stateful (globalStdGen)
 import Telegram.Bot.Api.Client
 import Telegram.Bot.Api.Types
-import Telegram.Bot.Api.Types (SendPhotoRequest (SendPhotoRequest))
 
 startTracker :: AppCtx Connection -> IO ()
 startTracker ctx@AppCtx {..} = do
@@ -36,21 +35,21 @@ startTracker ctx@AppCtx {..} = do
     case r of
       Left err -> logGeneric logger "ERROR" config err
       Right x -> pure x
-    p <- randomPause
-    threadDelay p
+    randomPause >>= threadDelay
 
 runTracker :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => m ()
 runTracker = do
   AppCtx {..} <- ask
   mbt <- DB.findOneToTrack
   case mbt of
-    Nothing -> return () -- TODO: reset flags
+    Nothing -> DB.resetTrackRequests
     Just t@DB.TrackRequest {..} -> do
       SearchResponse {..} <- liftIO $ doSearch searchQuery
       newTrades <- DB.findNewHits _hits
       sequence_ (notify t <$> newTrades)
       sequence_ (DB.saveTrade <$> newTrades)
-      DB.setAsTracked userId (fromMaybe 0 requestId)
+      now <- liftIO $ getCurrentTime 
+      DB.setAsTracked userId (fromMaybe 0 requestId) now
 
 notify :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => TrackRequest -> Hit -> m ()
 notify tr@DB.TrackRequest {..} hit@Hit {..} = do
@@ -58,7 +57,8 @@ notify tr@DB.TrackRequest {..} hit@Hit {..} = do
   let image = renderHit font (fromIntegral rnDpi) hit
       url = searchToUrl . hitToSearch $ hit
       rid = T.pack . show $ fromMaybe 0 requestId
-  sendPhoto $ SendPhotoRequest userId image $ Just (InlineKeyboardMarkup [[InlineKeyboardButton _note (Just url) Nothing], [InlineKeyboardButton "stop tracking" Nothing (Just (T.append "stopTracking," rid) )]])
+      kb = Just (InlineKeyboardMarkup [[InlineKeyboardButton _note (Just url) Nothing], [InlineKeyboardButton "stop tracking" Nothing (Just ("stopTracking," `T.append` userId `T.append` "," `T.append` rid))]])
+  sendPhoto $ SendPhotoRequest userId image kb
 
 randomPause :: IO Int
 randomPause = do

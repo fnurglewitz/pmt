@@ -1,34 +1,27 @@
-{-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE GADTs #-}
-{-# OPTIONS -Wno-unused-top-binds #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Main where
 
-import App.Database
 import App.Config
+import App.Database
 import App.Logging
-
-import Tracker.Tracker
-
-import Telegram.Bot.Bot
-
 import Control.Applicative ((<|>))
-import Control.Exception (throwIO)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar
+import Control.Exception (throwIO)
 import Control.Monad
 import Data.Semigroup ((<>))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Graphics.Text.TrueType (BoundingBox (..), Dpi, Font (..), loadFontFile, pointInPixelAtDpi, stringBoundingBox) -- TODO: clean
 import Options.Applicative
+import Telegram.Bot.Bot
+import Tracker.Tracker
 
 main :: IO ()
 main = do
-  cfg@(Config{..}) <- customExecParser p cfgParserInfo
+  cfg@(Config {..}) <- customExecParser p cfgParserInfo
   font <- loadFont (rnFontPath renderCfg)
   conn <- getConnection databaseCfg
   loggerSet <- getLoggerSet
@@ -41,8 +34,8 @@ main = do
     p = prefs $ showHelpOnEmpty <> showHelpOnError
 
 loadFont :: Text -> IO Font
-loadFont path = do 
+loadFont path = do
   mbFont <- loadFontFile (T.unpack path)
   case mbFont of
-    Left err -> error err 
+    Left err -> error err
     Right font -> return font
