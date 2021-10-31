@@ -56,18 +56,6 @@ runBot = do
   where
     selectAction (Update _ msg cbk) = (handleMessage <$> msg) <|> (handleCallback <$> cbk)
 
-{-
-runBot = do
-  AppCtx {..} <- ask
-  mUpdate <- getUpdate
-  case mUpdate of
-    Nothing -> logError "No update found, fuck you" -- throwError "No update found, fuck you"
-    Just (Update uid msg cbk) -> do
-      case msg of
-        Just message -> handleMessage message
-        Nothing -> forM_ cbk handleCallback
--}
-
 handleMessage :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
 handleMessage m@Message {..} = do
   case from of
@@ -75,72 +63,64 @@ handleMessage m@Message {..} = do
     Just user -> do
       auth <- checkAuth user
       case mbCommand of
-        Just cmd -> handleCommand cmd auth m
+        Just cmd -> flip runReaderT auth $ handleCommand cmd m
         Nothing -> return ()
   where
     mbCommand = getEntity "bot_command" m >> text <&> head . T.words
 
-handleCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Text -> DB.Auth -> Message -> m ()
-handleCommand "/start" a m = startCommand m
+-- handleCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Text -> DB.Auth -> Message -> m ()
+handleCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Text -> Message -> ReaderT DB.Auth m ()
 -- Track requests
-handleCommand "/track" a m = trackCommand a m
-handleCommand "/list" a m = listTrackCommand a m
+handleCommand "/track" m = trackCommand m
+handleCommand "/list" m = listTrackCommand m
 -- Price checks
-handleCommand "/addpc" a m = addPriceCheckCommand a m
-handleCommand "/pc" a m = priceCheckCommand m
-handleCommand "/delpc" a m = deletePriceCheckCommand m
-handleCommand "/listpc" a m = listPriceCheckCommand a m
-handleCommand "/confpc" a m = configurePriceCheckCommand m
+handleCommand "/addpc" m = addPriceCheckCommand m
+handleCommand "/pc" m = priceCheckCommand m
+handleCommand "/delpc" m = deletePriceCheckCommand m
+handleCommand "/listpc" m = listPriceCheckCommand m
+handleCommand "/confpc" m = configurePriceCheckCommand m
 -- none
-handleCommand cmd _ m@Message {..} = replyToMessage m (T.append "Unknown command: " cmd)
+handleCommand cmd m@Message {..} = lift $ replyToMessage m (T.append "Unknown command: " cmd)
 
-startCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
-startCommand m@Message {..} = do
-  mbAuth <- DB.getAuth uid
-  case mbAuth of
-    Just _ -> return () -- already on db, no need to do anything
-    Nothing -> do
-      now <- liftIO getCurrentTime
-      DB.saveAuth $ DB.Auth uid now False 0 0 uname -- TODO
-  where
-    uid = maybe 0 userId from
-    uname = fromMaybe "" (from >>= username)
-
-trackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => DB.Auth -> Message -> m ()
-trackCommand DB.Auth {..} m@Message {..} = case urlEntity of
-  Nothing -> replyToMessage m "No PoD url provided"
-  Just (MessageEntity _ offset len _ _ _) -> do
-    let url = substr (fromInteger offset) (fromInteger len) (fromMaybe "" text)
-        rawnotes = T.drop (fromIntegral $ offset + len) (fromMaybe "" text)
-        notes = if T.length rawnotes == 0 then "" else T.drop 1 rawnotes
-    case parsePodUri url of
-      Left err -> replyToMessage m (T.append "Could not parse url: " err)
-      Right query -> do
-        trLen <- length <$> DB.listTrackRequest userIdTxt
-        if trLen >= fromIntegral aMaxTrackRequests
-          then do
-            replyToMessage m $ "Maximum number of track requests reached (" `T.append` (T.pack . show $ aMaxTrackRequests) `T.append` "). Track request denied."
-          else do
-            now <- liftIO getCurrentTime
-            DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query notes False now now
-            replyToMessage m "Track request accepted"
+trackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> ReaderT DB.Auth m ()
+trackCommand m@Message {..} = do
+  DB.Auth {..} <- ask
+  lift $ case urlEntity of
+    Nothing -> replyToMessage m "No PoD url provided"
+    Just (MessageEntity _ offset len _ _ _) -> do
+      let url = substr (fromInteger offset) (fromInteger len) (fromMaybe "" text)
+          rawnotes = T.drop (fromIntegral $ offset + len) (fromMaybe "" text)
+          notes = if T.length rawnotes == 0 then "" else T.drop 1 rawnotes
+      case parsePodUri url of
+        Left err -> replyToMessage m (T.append "Could not parse url: " err)
+        Right query -> do
+          trLen <- length <$> DB.listTrackRequest userIdTxt
+          if trLen >= fromIntegral aMaxTrackRequests
+            then do
+              replyToMessage m $ "Maximum number of track requests reached (" `T.append` (T.pack . show $ aMaxTrackRequests) `T.append` "). Track request denied."
+            else do
+              now <- liftIO getCurrentTime
+              DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query notes False now now
+              replyToMessage m "Track request accepted"
   where
     urlEntity = getEntity "url" m
     substr o l t = T.take l $ T.drop o t
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
 
-listTrackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => DB.Auth -> Message -> m ()
-listTrackCommand DB.Auth {..} m@Message {..} = do
-  t <- DB.listTrackRequest $ (T.pack . show) (maybe 0 userId from)
-  let msgTxt = Prelude.foldl T.append ("Track requests (" `T.append` (T.pack . show $ length t) `T.append` "/" `T.append` (T.pack . show $ aMaxTrackRequests) `T.append` "):\n") (toListElem <$> t)
-  replyToMessageWithKeyboard m msgTxt (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
+listTrackCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> ReaderT DB.Auth m ()
+listTrackCommand m@Message {..} = do
+  DB.Auth {..} <- ask
+  lift $ do
+    t <- DB.listTrackRequest $ (T.pack . show) (maybe 0 userId from)
+    let msgTxt = Prelude.foldl T.append ("Track requests (" `T.append` (T.pack . show $ length t) `T.append` "/" `T.append` (T.pack . show $ aMaxTrackRequests) `T.append` "):\n") (toListElem <$> t)
+    replyToMessageWithKeyboard m msgTxt (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
   where
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
     toListElem DB.TrackRequest {..} = (T.pack . show $ fromMaybe (-1) requestId) `T.append` " - " `T.append` notes `T.append` "\n"
     toKeyboardBtn DB.TrackRequest {..} = InlineKeyboardButton (T.append "delete: " notes) Nothing (Just ("stopTracking," `T.append` userId `T.append` "," `T.append` (T.pack . show $ fromMaybe 0 requestId)))
 
-priceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
-priceCheckCommand m@Message {..} = do
+priceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> ReaderT DB.Auth m ()
+priceCheckCommand m@Message {..} = lift $ do
   ctx@(AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font) <- ask
   case text >>= listToMaybe . drop 1 . T.words of
     Nothing -> replyToMessage m "No price check name provided"
@@ -156,30 +136,32 @@ priceCheckCommand m@Message {..} = do
     hitToRow cfg hit@Hit {..} = (_username, [applyConfig cfg hit, _note])
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
 
-addPriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => DB.Auth -> Message -> m ()
-addPriceCheckCommand DB.Auth {..} m@Message {..} = case urlEntity of
-  Nothing -> replyToMessage m "No PoD url provided"
-  Just (MessageEntity _ offset len _ _ _) -> do
-    let url = substr (fromInteger offset) (fromInteger len) (fromMaybe "" text)
-        rawnotes = T.drop (fromIntegral $ offset + len) (fromMaybe "" text)
-        notes = if T.length rawnotes == 0 then "" else T.drop 1 rawnotes
-    case parsePodUri url of
-      Left err -> replyToMessage m (T.append "Could not parse url: " err)
-      Right query -> do
-        pcLen <- length <$> DB.listPc userIdTxt
-        if pcLen >= fromIntegral aMaxPriceChecks
-          then do
-            replyToMessage m $ "Maximum number of price checks reached (" `T.append` (T.pack . show $ aMaxPriceChecks) `T.append` "). Price check denied."
-          else do
-            DB.savePc $ DB.PriceCheck Nothing userIdTxt notes url query Nothing
-            replyToMessage m "PriceCheck saved"
+addPriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> ReaderT DB.Auth m ()
+addPriceCheckCommand m@Message {..} = do
+  DB.Auth {..} <- ask
+  lift $ case urlEntity of
+    Nothing -> replyToMessage m "No PoD url provided"
+    Just (MessageEntity _ offset len _ _ _) -> do
+      let url = substr (fromInteger offset) (fromInteger len) (fromMaybe "" text)
+          rawnotes = T.drop (fromIntegral $ offset + len) (fromMaybe "" text)
+          notes = if T.length rawnotes == 0 then "" else T.drop 1 rawnotes
+      case parsePodUri url of
+        Left err -> replyToMessage m (T.append "Could not parse url: " err)
+        Right query -> do
+          pcLen <- length <$> DB.listPc userIdTxt
+          if pcLen >= fromIntegral aMaxPriceChecks
+            then do
+              replyToMessage m $ "Maximum number of price checks reached (" `T.append` (T.pack . show $ aMaxPriceChecks) `T.append` "). Price check denied."
+            else do
+              DB.savePc $ DB.PriceCheck Nothing userIdTxt notes url query Nothing
+              replyToMessage m "PriceCheck saved"
   where
     urlEntity = getEntity "url" m
     substr o l t = T.take l $ T.drop o t
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
 
-deletePriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
-deletePriceCheckCommand m@Message {..} = do
+deletePriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> ReaderT DB.Auth m ()
+deletePriceCheckCommand m@Message {..} = lift $ do
   case text >>= listToMaybe . drop 1 . T.words of
     Nothing -> replyToMessage m "No price check name provided"
     Just pcName -> do
@@ -193,18 +175,20 @@ deletePriceCheckCommand m@Message {..} = do
     hitToLine Hit {..} = _username `T.append` ": " `T.append` _note `T.append` "\n"
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
 
-listPriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => DB.Auth -> Message -> m ()
-listPriceCheckCommand DB.Auth {..} m@Message {..} = do
-  t <- DB.listPc $ (T.pack . show) (maybe 0 userId from)
-  let msgTxt = Prelude.foldl T.append ("Price checks (" `T.append` (T.pack . show $ length t) `T.append` "/" `T.append` (T.pack . show $ aMaxPriceChecks) `T.append` "):\n") (toListElem <$> t)
-  replyToMessageWithKeyboard m msgTxt (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
+listPriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> ReaderT DB.Auth m ()
+listPriceCheckCommand m@Message {..} = do
+  DB.Auth {..} <- ask
+  lift $ do
+    t <- DB.listPc $ (T.pack . show) (maybe 0 userId from)
+    let msgTxt = Prelude.foldl T.append ("Price checks (" `T.append` (T.pack . show $ length t) `T.append` "/" `T.append` (T.pack . show $ aMaxPriceChecks) `T.append` "):\n") (toListElem <$> t)
+    replyToMessageWithKeyboard m msgTxt (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
   where
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
     toListElem DB.PriceCheck {..} = (T.pack . show $ fromMaybe (-1) pcId) `T.append` ". <a href=\"" `T.append` pcUrl `T.append` "\">" `T.append` pcName `T.append` "</a>\n"
     toKeyboardBtn DB.PriceCheck {..} = InlineKeyboardButton (T.append "delete: " pcName) Nothing (Just ("deletePc," `T.append` pcUserId `T.append` "," `T.append` pcName))
 
-configurePriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> m ()
-configurePriceCheckCommand m@Message {..} = do
+configurePriceCheckCommand :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => Message -> ReaderT DB.Auth m ()
+configurePriceCheckCommand m@Message {..} = lift $ do
   ctx@(AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font) <- ask
   case text >>= listToMaybe . drop 1 . T.words of
     Nothing -> replyToMessage m "No price check name provided"
