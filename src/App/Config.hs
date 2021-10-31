@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module App.Config (Config (..), TelegramConfig (..), DatabaseConfig (..), RenderConfig(..), AppCtx (..), cfgParserInfo) where
+module App.Config (Config (..), TelegramConfig (..), DatabaseConfig (..), RenderConfig (..), AppCtx (..), cfgParserInfo) where
 
 import Control.Concurrent.MVar (MVar)
 import Data.Semigroup ((<>))
@@ -26,7 +26,6 @@ import Options.Applicative
 import System.Log.FastLogger (LoggerSet)
 import Telegram.Bot.Api.Types (Token)
 
-
 data Config = Config
   { env :: Text,
     appName :: Text,
@@ -40,7 +39,8 @@ data Config = Config
 
 data TelegramConfig = TelegramConfig
   { tgBaseUrl :: Text,
-    tgToken :: Token
+    tgToken :: Token,
+    tgAdmin :: Integer
   }
   deriving (Show)
 
@@ -84,6 +84,13 @@ tgParser =
       ( long "tg-token"
           <> metavar "TGTOKEN"
           <> help "Telegram bot api token"
+      )
+    <*> option
+      auto
+      ( long "tg-admin"
+          <> help "Telegram bot admin user"
+          <> showDefault
+          <> metavar "TGADMIN"
       )
 
 dbParser :: Parser DatabaseConfig

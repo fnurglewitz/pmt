@@ -51,7 +51,7 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
                     { managerResponseTimeout = responseTimeoutMicro 35000000
                     }
                 )
-        TelegramConfig tgBaseUrl (Token token) = telegramCfg config
+        TelegramConfig tgBaseUrl (Token token) _ = telegramCfg config
     let call = view responseBody <$> getWith opts (T.unpack (T.concat [tgBaseUrl, token, "/getUpdates"]))
     responseMB <- liftIO $
       catch (Just <$> call) $
@@ -70,7 +70,7 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
             pure $ Just x
 
   sendMessage SendMessageRequest {..} = do
-    TelegramConfig tgBaseUrl (Token token) <- asks $ telegramCfg . config
+    TelegramConfig tgBaseUrl (Token token) _ <- asks $ telegramCfg . config
     let partChatId = partText "chat_id" mChatId
         partTxt = partText "text" mText
         partDisableNotification = partText "disable_notification" $ (T.pack . show) mDisableNotification
@@ -81,7 +81,7 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
     return ()
 
   editMessage EditMessageRequest {..} = do
-    TelegramConfig tgBaseUrl (Token token) <- asks $ telegramCfg . config
+    TelegramConfig tgBaseUrl (Token token) _ <- asks $ telegramCfg . config
     let partChatId = partText "chat_id" eChatId
         partMsgId = partText "message_id" eMessageId
         partTxt = partText "text" eText
@@ -90,7 +90,7 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
     return ()
 
   sendPhoto SendPhotoRequest {..} = do
-    TelegramConfig tgBaseUrl (Token token) <- asks $ telegramCfg . config
+    TelegramConfig tgBaseUrl (Token token) _ <- asks $ telegramCfg . config
     let partChatId = partText "chat_id" pChatId
         -- partCaption = partText "caption" want
         partPhoto = partBS "photo" content & (partFileName ?~ "photo.png") & (partContentType ?~ "image/png")

@@ -33,6 +33,7 @@ library
                     , Telegram.Bot.Api.Types
                     , Telegram.Bot.Api.Client
                     , Telegram.Bot.Bot
+                    , Telegram.Bot.Auth
 
                     , Tracker.Tracker
 

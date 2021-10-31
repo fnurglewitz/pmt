@@ -31,6 +31,9 @@ getConnection :: DatabaseConfig -> IO Connection
 getConnection DatabaseConfig {..} = connect $ ConnectInfo (T.unpack pgHost) 5432 (T.unpack pgUser) (T.unpack pgPass) (T.unpack pgDb)
 
 class (Monad m) => DB m where
+  saveAuth :: Auth -> m ()
+  getAuth :: Integer -> m (Maybe Auth)
+
   saveTrackRequest :: TrackRequest -> m ()
   listTrackRequest :: Text -> m [TrackRequest]
   deleteTrackRequest :: Text -> Integer -> m ()
@@ -49,6 +52,21 @@ class (Monad m) => DB m where
   configurePc :: Text -> Text -> Maybe Text -> m ()
 
 instance (MonadIO m) => DB (AppM Connection e m) where
+  saveAuth Auth {..} = do
+    conn <- asks db
+    liftIO $
+      execute
+        conn
+        [sql| INSERT INTO public.auth (user_id, request_time, enabled, max_price_checks, max_track_requests, username) 
+                      VALUES (?, ?, ?, ?, ?, ?) |]
+        (aUserId, aRequestTime, aEnabled, aMaxPriceChecks, aMaxTrackRequests, aUsername)
+    return ()
+
+  getAuth uid = do
+    conn <- asks db
+    r <- liftIO $ query conn "select user_id, request_time, enabled, max_price_checks, max_track_requests, username from public.auth where user_id = ? limit 1" [uid]
+    return $ listToMaybe r
+
   saveTrackRequest req@TrackRequest {..} = do
     conn <- asks db
     liftIO $
@@ -113,7 +131,7 @@ instance (MonadIO m) => DB (AppM Connection e m) where
 
   findNewHits hits = do
     conn <- asks db
-    existing <- liftIO $ query conn "select hit from public.trade_listing where trade_id in ?" (Only (In $ _tradeId <$> hits))
+    existing <- liftIO $ query conn "select hit from public.trade_listing where trade_id in ?" (Only (In $ _tradeId <$> hits)) -- TODO: doesn't work for multi-user...
     return $ findNew (fromOnly <$> existing)
     where
       findNew t = S.toList $ S.fromList hits S.\\ S.fromList t
@@ -188,5 +206,15 @@ data PriceCheck = PriceCheck
     pcUrl :: Text,
     pcSearchQuery :: SearchQuery,
     pcConfig :: Maybe Text
+  }
+  deriving (Generic, FromRow, ToRow, Show)
+
+data Auth = Auth
+  { aUserId :: Integer,
+    aRequestTime :: UTCTime,
+    aEnabled :: Bool,
+    aMaxPriceChecks :: Integer,
+    aMaxTrackRequests :: Integer,
+    aUsername :: Text
   }
   deriving (Generic, FromRow, ToRow, Show)

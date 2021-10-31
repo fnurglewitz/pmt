@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
-module Tracker.Tracker where
+module Tracker.Tracker (startTracker) where
 
 import App.Config
 import App.Database (TrackRequest (searchQuery))
@@ -16,7 +16,7 @@ import Control.Monad.Reader
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time ( getCurrentTime )
+import Data.Time (getCurrentTime)
 import Database.PostgreSQL.Simple
 import PoD.Api (doSearch)
 import PoD.Parser (hitToSearch, searchToUrl)
@@ -48,7 +48,7 @@ runTracker = do
       newTrades <- DB.findNewHits _hits
       sequence_ (notify t <$> newTrades)
       sequence_ (DB.saveTrade <$> newTrades)
-      now <- liftIO $ getCurrentTime 
+      now <- liftIO $ getCurrentTime
       DB.setAsTracked userId (fromMaybe 0 requestId) now
 
 notify :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => TrackRequest -> Hit -> m ()
