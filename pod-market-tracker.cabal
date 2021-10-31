@@ -22,82 +22,80 @@ maintainer:         enrico.bandiera@mondora.com
 extra-source-files: CHANGELOG.md
 
 library
-    exposed-modules:  Utils.Aeson
-                    , Utils.Tabular
+  exposed-modules:
+    App.Config
+    App.Database
+    App.Logging
+    App.Monad
+    PoD.Api
+    PoD.Parser
+    PoD.Rendering
+    PoD.Types
+    Telegram.Bot.Api.Client
+    Telegram.Bot.Api.Types
+    Telegram.Bot.Auth
+    Telegram.Bot.Bot
+    Tracker.Tracker
+    Utils.Aeson
+    Utils.Tabular
 
-                    , PoD.Parser
-                    , PoD.Types
-                    , PoD.Api
-                    , PoD.Rendering
-                    
-                    , Telegram.Bot.Api.Types
-                    , Telegram.Bot.Api.Client
-                    , Telegram.Bot.Bot
-                    , Telegram.Bot.Auth
+  -- Modules included in this library but not exported.
+  -- other-modules:
 
-                    , Tracker.Tracker
+  -- LANGUAGE extensions used by modules in this package.
+  -- other-extensions:
+  build-depends:
+    , aeson
+    , base
+    , base64-bytestring
+    , bytestring
+    , containers
+    , data-default
+    , data-flags
+    , di
+    , fast-logger
+    , FontyFruity
+    , generic-lens
+    , http-client
+    , http-client-tls
+    , http-types
+    , iso8601-time
+    , JuicyPixels
+    , lens-aeson
+    , microlens-platform
+    , mtl
+    , optparse-applicative
+    , parsec
+    , postgresql-simple
+    , random
+    , Rasterific
+    , tabular
+    , text
+    , text-show
+    , time
+    , transformers
+    , unliftio
+    , uri-encode
+    , wreq
 
-                    , App.Config
-                    , App.Monad
-                    , App.Database
-                    , App.Logging
-
-    -- Modules included in this library but not exported.
-    -- other-modules:
-
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
-    build-depends:    base 
-                     , text
-                     , text-show
-                     , containers
-                     , time
-                     , aeson
-                     , microlens-platform
-                     , parsec
-                     , base64-bytestring
-                     , bytestring
-                     , wreq
-                     , http-types
-                     , http-client
-                     , http-client-tls
-                     , uri-encode
-                     , unliftio
-                     , FontyFruity
-                     , JuicyPixels
-                     , Rasterific
-                     , transformers
-                     , iso8601-time
-                     , postgresql-simple
-                     , data-default
-                     , data-flags
-                     , di
-                     , generic-lens
-                     , lens-aeson
-                     , mtl
-                     , fast-logger
-                     , optparse-applicative
-                     , tabular
-                     , random
-                     
-    hs-source-dirs:   src
-    default-language: Haskell2010
+  hs-source-dirs:   src
+  default-language: Haskell2010
 
 executable pod-market-tracker
-    main-is:          Main.hs
+  main-is:          Main.hs
 
-    -- Modules included in this executable, other than Main.
-    -- other-modules:
+  -- Modules included in this executable, other than Main.
+  -- other-modules:
 
-    -- LANGUAGE extensions used by modules in this package.
-    -- other-extensions:
-    build-depends:
-        base ,
-        pod-market-tracker,
-        text,
-        fast-logger,
-        optparse-applicative,
-        FontyFruity
+  -- LANGUAGE extensions used by modules in this package.
+  -- other-extensions:
+  build-depends:
+    , base
+    , fast-logger
+    , FontyFruity
+    , optparse-applicative
+    , pod-market-tracker
+    , text
 
-    hs-source-dirs:   app
-    default-language: Haskell2010
+  hs-source-dirs:   app
+  default-language: Haskell2010
