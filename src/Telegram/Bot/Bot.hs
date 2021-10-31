@@ -10,7 +10,7 @@ module Telegram.Bot.Bot (startBot) where
 import App.Config
   ( AppCtx (..)
   )
-import App.Database (Auth, DB)
+import App.Database (Auth(..), DB)
 import qualified App.Database as DB
 import App.Logging (HasLogger (logError), logGeneric)
 import App.Monad (AppM (runAppM))
@@ -110,16 +110,16 @@ handleCommand "/track" = trackCommand
 handleCommand "/list" = listTrackCommand
 -- Price checks
 handleCommand "/addpc" = addPriceCheckCommand
-handleCommand "/pc" = priceCheckCommand
-handleCommand "/delpc" = deletePriceCheckCommand
+handleCommand "/pc" = lift . priceCheckCommand
+handleCommand "/delpc" = lift . deletePriceCheckCommand
 handleCommand "/listpc" = listPriceCheckCommand
-handleCommand "/confpc" = configurePriceCheckCommand
+handleCommand "/confpc" = lift . configurePriceCheckCommand
 -- none
 handleCommand cmd = \m -> lift $ replyToMessage m (T.append "Unknown command: " cmd)
 
 trackCommand :: Effects m => Message -> Authorized m ()
 trackCommand m@Message {..} = do
-  DB.Auth {..} <- ask
+  Auth {..} <- ask
   lift $ case urlEntity of
     Nothing -> replyToMessage m "No PoD url provided"
     Just (MessageEntity _ offset len _ _ _) -> do
@@ -144,7 +144,7 @@ trackCommand m@Message {..} = do
 
 listTrackCommand :: Effects m => Message -> Authorized m ()
 listTrackCommand m@Message {..} = do
-  DB.Auth {..} <- ask
+  Auth {..} <- ask
   lift $ do
     t <- DB.listTrackRequest $ (T.pack . show) (maybe 0 userId from)
     let msgTxt = Prelude.foldl T.append ("Track requests (" `T.append` (T.pack . show $ length t) `T.append` "/" `T.append` (T.pack . show $ aMaxTrackRequests) `T.append` "):\n") (toListElem <$> t)
@@ -154,8 +154,8 @@ listTrackCommand m@Message {..} = do
     toListElem DB.TrackRequest {..} = (T.pack . show $ fromMaybe (-1) requestId) `T.append` " - " `T.append` notes `T.append` "\n"
     toKeyboardBtn DB.TrackRequest {..} = InlineKeyboardButton (T.append "delete: " notes) Nothing (Just ("stopTracking," `T.append` userId `T.append` "," `T.append` (T.pack . show $ fromMaybe 0 requestId)))
 
-priceCheckCommand :: Effects m => Message -> Authorized m ()
-priceCheckCommand m@Message {..} = lift $ do
+priceCheckCommand :: Effects m => Message -> m ()
+priceCheckCommand m@Message {..} = do
   -- ctx@(AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font) <- ask
   case text >>= listToMaybe . drop 1 . T.words of
     Nothing -> replyToMessage m "No price check name provided"
@@ -173,7 +173,7 @@ priceCheckCommand m@Message {..} = lift $ do
 
 addPriceCheckCommand :: Effects m => Message -> Authorized m ()
 addPriceCheckCommand m@Message {..} = do
-  DB.Auth {..} <- ask
+  Auth {..} <- ask
   lift $ case urlEntity of
     Nothing -> replyToMessage m "No PoD url provided"
     Just (MessageEntity _ offset len _ _ _) -> do
@@ -195,8 +195,8 @@ addPriceCheckCommand m@Message {..} = do
     substr o l t = T.take l $ T.drop o t
     userIdTxt = (T.pack . show) (maybe 0 userId from) -- TODO: nice shit
 
-deletePriceCheckCommand :: Effects m => Message -> Authorized m ()
-deletePriceCheckCommand m@Message {..} = lift $ do
+deletePriceCheckCommand :: Effects m => Message -> m ()
+deletePriceCheckCommand m@Message {..} = do
   case text >>= listToMaybe . drop 1 . T.words of
     Nothing -> replyToMessage m "No price check name provided"
     Just pcName -> do
@@ -212,7 +212,7 @@ deletePriceCheckCommand m@Message {..} = lift $ do
 
 listPriceCheckCommand :: Effects m => Message -> Authorized m ()
 listPriceCheckCommand m@Message {..} = do
-  DB.Auth {..} <- ask
+  Auth {..} <- ask
   lift $ do
     t <- DB.listPc $ (T.pack . show) (maybe 0 userId from)
     let msgTxt = Prelude.foldl T.append ("Price checks (" `T.append` (T.pack . show $ length t) `T.append` "/" `T.append` (T.pack . show $ aMaxPriceChecks) `T.append` "):\n") (toListElem <$> t)
@@ -222,8 +222,8 @@ listPriceCheckCommand m@Message {..} = do
     toListElem DB.PriceCheck {..} = (T.pack . show $ fromMaybe (-1) pcId) `T.append` ". <a href=\"" `T.append` pcUrl `T.append` "\">" `T.append` pcName `T.append` "</a>\n"
     toKeyboardBtn DB.PriceCheck {..} = InlineKeyboardButton (T.append "delete: " pcName) Nothing (Just ("deletePc," `T.append` pcUserId `T.append` "," `T.append` pcName))
 
-configurePriceCheckCommand :: Effects m => Message -> Authorized m ()
-configurePriceCheckCommand m@Message {..} = lift $ do
+configurePriceCheckCommand :: Effects m => Message -> m ()
+configurePriceCheckCommand m@Message {..} = do
   -- ctx@(AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font) <- ask
   case text >>= listToMaybe . drop 1 . T.words of
     Nothing -> replyToMessage m "No price check name provided"
