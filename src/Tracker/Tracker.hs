@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Tracker.Tracker (startTracker) where
@@ -26,6 +27,7 @@ import System.Random
 import System.Random.Stateful
 import Telegram.Bot.Api.Client
 import Telegram.Bot.Api.Types
+import Text.InterpolatedString.QM (qms)
 
 startTracker :: AppCtx Connection -> IO ()
 startTracker ctx@AppCtx {..} = do
@@ -57,7 +59,7 @@ notify tr@DB.TrackRequest {..} hit@Hit {..} = do
   let image = renderHit font (fromIntegral rnDpi) hit
       url = searchToUrl . hitToSearch $ hit
       rid = T.pack . show $ fromMaybe 0 requestId
-      kb = Just (InlineKeyboardMarkup [[InlineKeyboardButton _note (Just url) Nothing], [InlineKeyboardButton "stop tracking" Nothing (Just ("stopTracking," `T.append` userId `T.append` "," `T.append` rid))]])
+      kb = Just (InlineKeyboardMarkup [[InlineKeyboardButton _note (Just url) Nothing], [InlineKeyboardButton "stop tracking" Nothing (Just [qms|stopTracking,{userId},{rid}|])]])
   sendPhoto $ SendPhotoRequest userId image kb
 
 randomPause :: IO Int

@@ -257,16 +257,16 @@ searchToUrl :: SearchQuery -> Text
 searchToUrl q@(SearchQuery SearchFilter {..}) =
   T.replace " " "+" $
     "https://beta.pathofdiablo.com/trade-search?"
-      `T.append` selectedItem
-      `T.append` quality
-      `T.append` poster
-      `T.append` itemType
-      `T.append` lvlReq
-      `T.append` corrupted
-      `T.append` ethereal
-      `T.append` minSockets
-      `T.append` maxSockets
-      `T.append` encodedProperties
+      <> selectedItem
+      <> quality
+      <> poster
+      <> itemType
+      <> lvlReq
+      <> corrupted
+      <> ethereal
+      <> minSockets
+      <> maxSockets
+      <> encodedProperties
   where
     wrap k = maybe "" (T.append k)
     wrap' c k = maybe (T.append k "no") (const (T.append k "yes")) (filter (\p -> Just c == _propertyCode p) _properties ^? ix 0)
