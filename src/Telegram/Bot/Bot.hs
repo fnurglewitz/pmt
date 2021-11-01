@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -118,16 +119,27 @@ startBot ctx@AppCtx {..} = do
       Right x -> pure x
     threadDelay 1000000
 
-type MessageM m = Stream (Of Text) (MaybeT m)
+type MessageM m = Stream (Of Reply) (MaybeT m)
 
-runMessageM :: Effects m => Message -> MessageM m () -> m ()
-runMessageM m = void . runMaybeT . S.mapM_ (lift . replyToMessage m)
+data Reply = ReplyLog Text | ReplyFailure Text 
 
-reply :: Monad m => Text -> MessageM m ()
-reply = S.yield
+runMessageM :: Effects m => Message -> MessageM m Text  -> m ()
+runMessageM m handler = do 
+  mr <- runMaybeT $ S.mapM_ 
+        do 
+          \case 
+            ReplyLog x -> lift . replyToMessage m $ x 
+            ReplyFailure x -> lift . replyToMessage m $ "Failure: " <> x 
+        do handler
+  case mr of 
+    Nothing -> pure ()
+    Just x -> replyToMessage m $ "Success: " <> x 
+
+replyLog :: Monad m => Text -> MessageM m ()
+replyLog = S.yield . ReplyLog 
 
 dieWith :: Monad m => Text -> MessageM m b
-dieWith t = S.yield t >> lift mzero
+dieWith t = S.yield (ReplyFailure t) >> lift mzero
 
 dieOnNothing :: Monad m => Maybe b -> Text -> MessageM m b
 dieOnNothing Nothing t = dieWith t
@@ -176,7 +188,7 @@ trackCommand m@Message {..} = do
   Auth {..} <- ask
   lift $
     runMessageM m $ do
-      reply "Accepting track request"
+      replyLog "Accepting track request"
       MessageEntity _ offset len _ _ _ <- dieOnNothing urlEntity "No PoD url provided"
       let url = substr (fromInteger offset) (fromInteger len) (fromMaybe "" text)
           rawnotes = T.drop (fromIntegral $ offset + len) (fromMaybe "" text)
@@ -189,7 +201,7 @@ trackCommand m@Message {..} = do
         else do
           now <- liftIO getCurrentTime
           lift $ lift $ DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query notes False now now
-          reply "Track request accepted"
+          replyLog "Track request accepted"
   where
     urlEntity = getEntity "url" m
     substr o l t = T.take l $ T.drop o t
