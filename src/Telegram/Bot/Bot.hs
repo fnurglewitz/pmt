@@ -1,12 +1,13 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wall #-}
 
+{-# LANGUAGE ViewPatterns #-}
 module Telegram.Bot.Bot (startBot) where
 
 import App.Config
@@ -121,22 +122,21 @@ startBot ctx@AppCtx {..} = do
 
 type MessageM m = Stream (Of Reply) (MaybeT m)
 
-data Reply = ReplyLog Text | ReplyFailure Text 
+data Reply = ReplyLog Text | ReplyFailure Text
 
-runMessageM :: Effects m => Message -> MessageM m Text  -> m ()
-runMessageM m handler = do 
-  mr <- runMaybeT $ S.mapM_ 
-        do 
-          \case 
-            ReplyLog x -> lift . replyToMessage m $ x 
-            ReplyFailure x -> lift . replyToMessage m $ "Failure: " <> x 
-        do handler
-  case mr of 
+runMessageM :: Effects m => Message -> MessageM m Text -> m ()
+runMessageM (replyToMessage -> reply) handler = do
+  mr <- runMaybeT $ S.mapM_
+    do lift . reply .  \case
+        ReplyLog x -> x
+        ReplyFailure x -> "Failure: " <> x
+    do handler
+  case mr of
     Nothing -> pure ()
-    Just x -> replyToMessage m $ "Success: " <> x 
+    Just x -> reply $ "Success: " <> x
 
 replyLog :: Monad m => Text -> MessageM m ()
-replyLog = S.yield . ReplyLog 
+replyLog = S.yield . ReplyLog
 
 dieWith :: Monad m => Text -> MessageM m b
 dieWith t = S.yield (ReplyFailure t) >> lift mzero
@@ -201,7 +201,7 @@ trackCommand m@Message {..} = do
         else do
           now <- liftIO getCurrentTime
           lift $ lift $ DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query notes False now now
-          replyLog "Track request accepted"
+          pure "Track request accepted"
   where
     urlEntity = getEntity "url" m
     substr o l t = T.take l $ T.drop o t
