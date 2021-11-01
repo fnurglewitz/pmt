@@ -5,9 +5,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wall #-}
 
-{-# LANGUAGE ViewPatterns #-}
 module Telegram.Bot.Bot (startBot) where
 
 import App.Config
@@ -20,14 +20,13 @@ import App.Monad (AppM (runAppM))
 import Control.Concurrent (threadDelay)
 import Control.Monad.Except
   ( MonadError (throwError)
-  , MonadPlus (mzero)
-  , runExceptT
   )
 import Control.Monad.Reader
   ( MonadReader (ask)
   , ReaderT (runReaderT)
   , forever
   )
+import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Data.Char (digitToInt)
 import Data.Functor ((<&>))
@@ -120,26 +119,27 @@ startBot ctx@AppCtx {..} = do
       Right x -> pure x
     threadDelay 1000000
 
-type MessageM m = Stream (Of Reply) (MaybeT m)
+-- reply logging activities or failures
 
-data Reply = ReplyLog Text | ReplyFailure Text
+-- we do enforce the one only failure in the type
+-- only message logs  are streamed
+type MessageM m = Stream (Of Text) (ExceptT Text m)
 
+-- the output of the handler is the success message
 runMessageM :: Effects m => Message -> MessageM m Text -> m ()
 runMessageM (replyToMessage -> reply) handler = do
-  mr <- runMaybeT $ S.mapM_
-    do lift . reply .  \case
-        ReplyLog x -> x
-        ReplyFailure x -> "Failure: " <> x
+  mr <- runExceptT $ S.mapM_
+    do lift . reply
     do handler
-  case mr of
-    Nothing -> pure ()
-    Just x -> reply $ "Success: " <> x
+  reply case mr of
+    Left x -> "Failure: " <> x
+    Right x -> "Success: " <> x
 
 replyLog :: Monad m => Text -> MessageM m ()
-replyLog = S.yield . ReplyLog
+replyLog = S.yield
 
 dieWith :: Monad m => Text -> MessageM m b
-dieWith t = S.yield (ReplyFailure t) >> lift mzero
+dieWith t = lift $ throwError t
 
 dieOnNothing :: Monad m => Maybe b -> Text -> MessageM m b
 dieOnNothing Nothing t = dieWith t
