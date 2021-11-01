@@ -9,28 +9,26 @@
 module Telegram.Bot.Bot (startBot) where
 
 import App.Config
-  ( AppCtx (..),
+  ( AppCtx (..)
   )
 import App.Database (Auth (..), DB)
 import qualified App.Database as DB
 import App.Logging (HasLogger (logError), logGeneric)
 import App.Monad (AppM (runAppM))
-import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
 import Control.Monad.Except
-  ( MonadError (throwError),
-    runExceptT,
+  ( MonadError (throwError)
+  , MonadPlus (mzero)
+  , runExceptT
   )
 import Control.Monad.Reader
-  ( MonadIO (..),
-    MonadReader (ask),
-    MonadTrans (lift),
-    ReaderT (runReaderT),
-    forever,
+  ( MonadReader (ask)
+  , ReaderT (runReaderT)
+  , forever
   )
 import Control.Monad.Trans.Maybe
 import Data.Char (digitToInt)
-import Data.Functor (void, (<&>))
+import Data.Functor ((<&>))
 import Data.List (find, nub)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.Text (Text)
@@ -39,38 +37,70 @@ import Data.Time (getCurrentTime)
 import Database.PostgreSQL.Simple (Connection)
 import PoD.Api (doSearch)
 import PoD.Parser (parsePodUri)
-import PoD.Types (Hit (Hit, _characterName, _createdAt, _difficulty, _iQuality, _iType, _itemJson, _itemProperties, _lastInGame, _lastOnline, _lvlReq, _name, _note, _prf, _qualityCode, _tradeId, _userId, _username), ItemProperty (..), SearchResponse (SearchResponse, _hits))
+import PoD.Types
+  ( Hit
+      ( Hit
+      , _characterName
+      , _createdAt
+      , _difficulty
+      , _iQuality
+      , _iType
+      , _itemJson
+      , _itemProperties
+      , _lastInGame
+      , _lastOnline
+      , _lvlReq
+      , _name
+      , _note
+      , _prf
+      , _qualityCode
+      , _tradeId
+      , _userId
+      , _username
+      )
+  , ItemProperty (..)
+  , SearchResponse (SearchResponse, _hits)
+  )
+import Streaming
+  ( Alternative ((<|>))
+  , MonadIO (..)
+  , MonadTrans (lift)
+  , Of
+  , Stream
+  , void
+  )
+import qualified Streaming.Prelude as S
 import Telegram.Bot.Api.Client
-  ( TelegramClient (editMessage, getUpdate, sendMessage),
+  ( TelegramClient (editMessage, getUpdate, sendMessage)
   )
 import Telegram.Bot.Api.Types
-  ( CallbackQuery (..),
-    Chat (Chat, chatId, chatType),
-    EditMessageRequest (EditMessageRequest),
-    InlineKeyboardButton
-      ( InlineKeyboardButton,
-        btnCbkData,
-        btnText,
-        btnUrl
-      ),
-    InlineKeyboardMarkup (InlineKeyboardMarkup),
-    Message (..),
-    MessageEntity (MessageEntity, eType),
-    SendMessageRequest (SendMessageRequest),
-    Update (Update),
-    User (userId),
+  ( CallbackQuery (..)
+  , Chat (Chat, chatId, chatType)
+  , EditMessageRequest (EditMessageRequest)
+  , InlineKeyboardButton
+      ( InlineKeyboardButton
+      , btnCbkData
+      , btnText
+      , btnUrl
+      )
+  , InlineKeyboardMarkup (InlineKeyboardMarkup)
+  , Message (..)
+  , MessageEntity (MessageEntity, eType)
+  , SendMessageRequest (SendMessageRequest)
+  , Update (Update)
+  , User (userId)
   )
 import Telegram.Bot.Auth (checkAuth)
 import Text.InterpolatedString.QM (qms)
 import Utils.Tabular (priceCheckTable)
 
 type Effects m =
-  ( MonadReader (AppCtx Connection) m,
-    MonadIO m,
-    MonadError Text m,
-    TelegramClient m,
-    DB m,
-    HasLogger m
+  ( MonadReader (AppCtx Connection) m
+  , MonadIO m
+  , MonadError Text m
+  , TelegramClient m
+  , DB m
+  , HasLogger m
   )
 
 type Authorized m = ReaderT Auth m
@@ -87,6 +117,25 @@ startBot ctx@AppCtx {..} = do
       Left err -> logGeneric logger "ERROR" config err
       Right x -> pure x
     threadDelay 1000000
+
+type MessageM m = Stream (Of Text) (MaybeT m)
+
+runMessageM :: Effects m => Message -> MessageM m () -> m ()
+runMessageM m = void . runMaybeT . S.mapM_ (lift . replyToMessage m)
+
+reply :: Monad m => Text -> MessageM m ()
+reply = S.yield
+
+dieWith :: Monad m => Text -> MessageM m b
+dieWith t = S.yield t >> lift mzero
+
+dieOnNothing :: Monad m => Maybe b -> Text -> MessageM m b
+dieOnNothing Nothing t = dieWith t
+dieOnNothing (Just x) _ = pure x
+
+dieOnLeft :: Monad m => Either t b -> (t -> Text) -> MessageM m b
+dieOnLeft (Left e) f = dieWith $ f e
+dieOnLeft (Right x) _ = pure x
 
 runBot :: Effects m => m ()
 runBot = do
@@ -125,23 +174,22 @@ handleCommand cmd = \m -> lift $ replyToMessage m [qms|Unknown command: {cmd}|]
 trackCommand :: Effects m => Message -> Authorized m ()
 trackCommand m@Message {..} = do
   Auth {..} <- ask
-  lift $ case urlEntity of
-    Nothing -> replyToMessage m "No PoD url provided"
-    Just (MessageEntity _ offset len _ _ _) -> do
+  lift $
+    runMessageM m $ do
+      reply "Accepting track request"
+      MessageEntity _ offset len _ _ _ <- dieOnNothing urlEntity "No PoD url provided"
       let url = substr (fromInteger offset) (fromInteger len) (fromMaybe "" text)
           rawnotes = T.drop (fromIntegral $ offset + len) (fromMaybe "" text)
           notes = if T.length rawnotes == 0 then "" else T.drop 1 rawnotes
-      case parsePodUri url of
-        Left err -> replyToMessage m [qms|Could not parse url: {err}|]
-        Right query -> do
-          trLen <- length <$> DB.listTrackRequest userIdTxt
-          if trLen >= fromIntegral aMaxTrackRequests
-            then do
-              replyToMessage m [qms|Maximum number of track requests reached ({aMaxTrackRequests}). Track request denied.|]
-            else do
-              now <- liftIO getCurrentTime
-              DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query notes False now now
-              replyToMessage m "Track request accepted"
+      query <- dieOnLeft (parsePodUri url) \err -> [qms|Could not parse url: {err}|]
+      trLen <- lift . lift $ length <$> DB.listTrackRequest userIdTxt
+      if trLen >= fromIntegral aMaxTrackRequests
+        then do
+          dieWith [qms|Maximum number of track requests reached ({aMaxTrackRequests}). Track request denied.|]
+        else do
+          now <- liftIO getCurrentTime
+          lift $ lift $ DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query notes False now now
+          reply "Track request accepted"
   where
     urlEntity = getEntity "url" m
     substr o l t = T.take l $ T.drop o t
@@ -241,15 +289,15 @@ configurePriceCheckCommand m@Message {..} = do
           SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
           let txtToBtn (code, label) =
                 InlineKeyboardButton
-                  { btnText = label,
-                    btnUrl = Nothing,
-                    btnCbkData = Just [qms|confPc,{pcUserId},{pcName},{code}|]
+                  { btnText = label
+                  , btnUrl = Nothing
+                  , btnCbkData = Just [qms|confPc,{pcUserId},{pcName},{code}|]
                   }
               resetBtnRow =
                 [ InlineKeyboardButton
-                    { btnText = "RESET",
-                      btnUrl = Nothing,
-                      btnCbkData = Just [qms|confPc,{pcUserId},{pcName},RESET|]
+                    { btnText = "RESET"
+                    , btnUrl = Nothing
+                    , btnCbkData = Just [qms|confPc,{pcUserId},{pcName},RESET|]
                     }
                 ]
               props = txtToBtn <$> (nub . concat $ hitToProps <$> _hits)

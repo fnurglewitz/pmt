@@ -70,6 +70,7 @@ library
     , qm-interpolated-string
     , random
     , Rasterific
+    , streaming
     , tabular
     , text
     , text-show
