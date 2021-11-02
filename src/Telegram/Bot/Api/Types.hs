@@ -18,9 +18,7 @@ import qualified Data.ByteString as B
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime (UTCTime), fromGregorian, secondsToDiffTime)
 import GHC.Generics (Generic)
-import Utils.Aeson (removeFieldLabelPrefix)
 
 newtype Token = Token Text deriving (Show)
 
@@ -193,7 +191,7 @@ data EditMessageRequest = EditMessageRequest
   }
   deriving (Eq, Show)
 
-data InlineKeyboardMarkup = InlineKeyboardMarkup
+newtype InlineKeyboardMarkup = InlineKeyboardMarkup
   { inlineKeyboard :: [[InlineKeyboardButton]]
   }
   deriving (Eq, Show, Generic)

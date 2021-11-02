@@ -3,14 +3,11 @@ module Utils.Aeson
   )
 where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), Value, genericParseJSON, genericToJSON)
 import Data.Aeson.Types (Options (..), defaultOptions)
 import qualified Data.Char as Char
 import Data.Function ((&))
 import Data.List (stripPrefix)
 import Data.Maybe (fromMaybe)
-import Data.Set (Set)
-import Data.Text (Text)
 import qualified Data.Text as T
 
 uncapitalize :: String -> String

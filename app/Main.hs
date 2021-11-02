@@ -21,7 +21,7 @@ import Tracker.Tracker
 
 main :: IO ()
 main = do
-  cfg@(Config {..}) <- customExecParser p cfgParserInfo
+  cfg@Config {..} <- customExecParser p cfgParserInfo
   font <- loadFont (rnFontPath renderCfg)
   conn <- getConnection databaseCfg
   loggerSet <- getLoggerSet

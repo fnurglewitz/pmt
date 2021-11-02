@@ -24,22 +24,11 @@ import Graphics.Text.TrueType
   ( BoundingBox (..),
     Dpi,
     Font,
-    PointSize (PointSize),
     stringBoundingBox,
   )
 import Lens.Micro.Platform ((<&>), (^.))
 import PoD.Types
   ( Hit (..),
-    ItemJson (..),
-    ItemProperty
-      ( ItemProperty,
-        _itemPropertyCode,
-        _itemPropertyLabel,
-        _itemPropertyOriginalText,
-        _itemPropertyValue
-      ),
-    Position (Position, _x, _y),
-    Size (Size, _invheight, _invwidth),
     nDamageMaximum,
     nDamageMinimum,
     nDefense,
@@ -97,6 +86,7 @@ qualityColor "Crafted" = orange
 qualityColor "q_crafted" = orange
 qualityColor "Runeword" = runeword
 qualityColor "q_runeword" = runeword
+qualityColor x = error $ "qualityColor not known: " <> T.unpack x
 
 
 boxHeight, boxWidth :: BoundingBox -> Float
@@ -116,25 +106,25 @@ toTextBoxes font dpi Hit {..} =
       itemType = makeTextBox font dpi headerSize qColor $ T.toUpper $ _itemJson ^. nTag
       defense = _itemJson ^. nDefense <&> T.toUpper >>= \def -> makeTextBox font dpi propsSize white $ T.append "DEFENSE: " def
       damage = do
-        min <- _itemJson ^. nDamageMinimum
-        max <- _itemJson ^. nDamageMaximum
-        let str = foldr T.append "" ["DAMAGE: ", min, "-", max]
+        min' <- _itemJson ^. nDamageMinimum
+        max' <- _itemJson ^. nDamageMaximum
+        let str = foldr T.append "" ["DAMAGE: ", min', "-", max']
         makeTextBox font dpi propsSize white str
       durability = do
-        min <- _itemJson ^. nDurability
-        max <- _itemJson ^. nDurabilityMaximum
-        let str = foldr T.append "" ["DURABILITY: ", min, " OF ", max]
+        min' <- _itemJson ^. nDurability
+        max' <- _itemJson ^. nDurabilityMaximum
+        let str = foldr T.append "" ["DURABILITY: ", min', " OF ", max']
         makeTextBox font dpi propsSize white str
       itemLvl = makeTextBox font dpi propsSize white $ T.append "ITEM LEVEL: " (_itemJson ^. nItemLevel)
       levelReq = makeTextBox font dpi propsSize white $ T.append "REQUIRED LEVEL: " (T.pack $ show $ _itemJson ^. nLevelReq)
    in fmap fromJust $ filter isJust [itemName, itemType, defense, damage, durability, itemLvl, levelReq] ++ propList
   where
     propertiesToTextBoxes :: Font -> Dpi -> [Text] -> [Maybe TextBox]
-    propertiesToTextBoxes font dpi lines = f <$> lines
+    propertiesToTextBoxes font' dpi' lines' = f <$> lines'
       where
         f txt
-          | "Corrupted" `T.isSuffixOf` txt = makeTextBox font dpi propsSize red "CORRUPTED"
-          | otherwise = makeTextBox font dpi propsSize blue txt'
+          | "Corrupted" `T.isSuffixOf` txt = makeTextBox font' dpi' propsSize red "CORRUPTED"
+          | otherwise = makeTextBox font' dpi propsSize blue txt'
           where
             txt' = T.toUpper txt
     propList = propertiesToTextBoxes font dpi (_itemJson ^. nPropertyList)
@@ -157,7 +147,7 @@ drawLine xMax oldY TextBox {..} = drawText $> y
     drawText = withTexture (uniformTexture bColor) $ printTextAt bFont bPointSize (V2 x y) (T.unpack bText)
 
 renderImage :: Font -> Int -> [TextBox] -> B.ByteString
-renderImage font dpi boxes =
+renderImage _font dpi boxes =
   BL.toStrict $
     encodePng $
       renderDrawingAtDpi w h dpi black $ do

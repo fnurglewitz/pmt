@@ -1,17 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeOperators #-}
 
 module PoD.Api (podTradeSession, withSessionSearch, doSearch) where
 
 import Data.Aeson.Types (toJSON)
-import Data.Maybe (fromMaybe)
-import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8)
 import Lens.Micro.Platform ((&), (.~), (^.))
 import qualified Network.HTTP.Client.Internal as HC
-import Network.URI.Encode (decodeByteString, decodeText)
+import Network.URI.Encode (decodeByteString)
 import Network.Wreq
   ( asJSON,
     cookies,
@@ -20,13 +15,13 @@ import Network.Wreq
     responseBody,
   )
 import qualified Network.Wreq.Session as S
-import PoD.Parser (parsePodUri)
-import PoD.Types (Hit (..), SearchQuery (SearchQuery), SearchResponse (SearchResponse))
+import PoD.Types (SearchQuery, SearchResponse)
+import Control.Monad (void)
 
 podTradeSession :: IO S.Session
 podTradeSession = do
   sess <- S.newSession
-  S.getWith opts sess "https://beta.pathofdiablo.com/trade-search"
+  void $ S.getWith opts sess "https://beta.pathofdiablo.com/trade-search"
   return sess
   where
     opts =
@@ -49,7 +44,7 @@ withSessionSearch sess q = do
   return (res ^. responseBody)
   where
     toCookieList = maybe [] HC.expose
-    getXsrfToken cookies = head $ HC.cookie_value <$> filter (\c -> "XSRF-TOKEN" == HC.cookie_name c) (toCookieList cookies)
+    getXsrfToken cookies' = head $ HC.cookie_value <$> filter (\c -> "XSRF-TOKEN" == HC.cookie_name c) (toCookieList cookies')
     opts cookieJar =
       defaults
         & header "authority" .~ ["beta.pathofdiablo.com"]

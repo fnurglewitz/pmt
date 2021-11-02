@@ -4,9 +4,8 @@
 module App.Config (Config (..), TelegramConfig (..), DatabaseConfig (..), RenderConfig (..), AppCtx (..), cfgParserInfo) where
 
 import Control.Concurrent.MVar (MVar)
-import Data.Semigroup ((<>))
 import Data.Text (Text)
-import Graphics.Text.TrueType (BoundingBox (..), Dpi, Font (..), loadFontFile, pointInPixelAtDpi, stringBoundingBox) -- TODO: clean
+import Graphics.Text.TrueType (Font) -- TODO: clean
 import Options.Applicative
   ( Parser,
     ParserInfo,
