@@ -7,13 +7,8 @@ module Telegram.Bot.Auth where
 import App.Config
 import qualified App.Database as DB
 import App.Logging
-import App.Monad
-import Control.Exception
 import Control.Monad.Except
   ( MonadError (throwError),
-    MonadIO (..),
-    forever,
-    runExceptT,
   )
 import Control.Monad.Reader
 import Data.Maybe ( fromMaybe )

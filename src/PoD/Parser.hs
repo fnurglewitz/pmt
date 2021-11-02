@@ -1,74 +1,72 @@
+{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-} -- TODO remove me
 
 module PoD.Parser (parsePodUri, hitToSearch, searchToUrl) where
 
-import Control.Monad (join)
+import Control.Monad (void)
 import Data.Aeson (eitherDecodeStrict, encode)
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy.Char8 as B
-import Data.Maybe (fromMaybe)
+import Data.Function ((&))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import qualified Data.Text.Read as TR
-import GHC.Generics (Generic)
-import Graphics.Rasterific.Linear (Metric (quadrance))
-import Lens.Micro.Platform (ix, over, set, view, (^.), (^?))
+import Lens.Micro.Platform (ix, over, set, (.~), (^.), (^?))
 import Network.URI.Encode (decodeText)
 import PoD.Types
-  ( Hit (..),
-    ItemProperty (..),
-    Property (..),
-    SearchFilter (..),
-    SearchFilterComponent (..),
-    SearchQuery (..),
-    corruptedItem,
-    emptyProperty,
-    etherealItem,
-    item,
-    itemJson,
-    itemType,
-    levelReq,
-    levelReqComparitor,
-    makeProperty,
-    makeSearchQuery,
-    makeValuedProperty,
-    maxSockets,
-    minSockets,
-    nQuality,
-    nQualityCode,
-    need,
-    poster,
-    properties,
-    quality,
-    searchFilter,
-    uncorruptedItem,
-    unetherealItem,
+  ( Hit (..)
+  , ItemProperty (..)
+  , Property (..)
+  , SearchFilter (..)
+  , SearchFilterComponent (..)
+  , SearchQuery (..)
+  , corruptedItem
+  , emptyProperty
+  , etherealItem
+  , item
+  , itemJson
+  , itemType
+  , levelReq
+  , levelReqComparitor
+  , makeProperty
+  , makeSearchQuery
+  , makeValuedProperty
+  , maxSockets
+  , minSockets
+  , nQualityCode
+  , need
+  , poster
+  , properties
+  , quality
+  , searchFilter
+  , uncorruptedItem
+  , unetherealItem
   )
 import Text.Parsec
-  ( char,
-    digit,
-    many1,
-    noneOf,
-    oneOf,
-    optional,
-    parse,
-    string,
-    try,
-    (<|>),
+  ( char
+  , digit
+  , many1
+  , noneOf
+  , oneOf
+  , optional
+  , parse
+  , string
+  , try
+  , (<|>)
   )
 import Text.Parsec.Text (Parser)
 import Text.ParserCombinators.Parsec.Error
-  ( errorMessages,
-    messageString,
+  ( errorMessages
+  , messageString
   )
-import Utils.Aeson (removeFieldLabelPrefix)
 
 parseMultiText :: String -> ([Text] -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseMultiText label constructor = do
   optional (char '&')
-  string label
+  void $ string label
   items <- T.pack <$$> many1 element
   return $ constructor items
   where
@@ -78,14 +76,14 @@ parseMultiText label constructor = do
 parseSingleText :: String -> (Text -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseSingleText label constructor = do
   optional (char '&')
-  string label
-  item <- T.pack <$> many1 (noneOf ['&'])
-  return $ constructor item
+  void $ string label
+  item' <- T.pack <$> many1 (noneOf ['&'])
+  return $ constructor item'
 
 parseInt :: String -> (Int -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseInt label constructor = do
   optional (char '&')
-  string label
+  void $ string label
   num <- T.pack <$> many1 digit
   case TR.decimal num of
     Right n -> return $ (constructor . fst) n
@@ -94,11 +92,12 @@ parseInt label constructor = do
 parseEnglishBool :: String -> (Bool -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseEnglishBool label constructor = do
   optional (char '&')
-  string label
+  void $ string label
   constructor . convert <$> (string "yes" <|> string "no")
   where
     convert "yes" = True
     convert "no" = False
+    convert _ = error "partial convertion for english bool"
 
 selectedItemsParser :: Parser SearchFilterComponent
 selectedItemsParser = parseMultiText "selectedItem=" SelectedItems
@@ -159,12 +158,13 @@ decodeProperties :: Text -> [Property]
 decodeProperties t = do
   let bs = encodeUtf8 t
   case B64.decode bs >>= eitherDecodeStrict of
-    Left err -> [] -- TODO
+    Left _err -> [] -- TODO
     Right props -> props
 
 removeEmptyProperty :: [Property] -> [Property]
 removeEmptyProperty = filter (/= emptyProperty)
 
+pp :: [a] -> [a] -> [a]
 pp = flip (++)
 
 applySearchFilterComponent :: SearchQuery -> SearchFilterComponent -> SearchQuery
@@ -180,15 +180,15 @@ applySearchFilterComponent q (Corrupted True) = over (searchFilter . properties)
 applySearchFilterComponent q (Corrupted False) = over (searchFilter . properties) (pp [uncorruptedItem]) q
 applySearchFilterComponent q (Ethereal True) = over (searchFilter . properties) (pp [etherealItem]) q
 applySearchFilterComponent q (Ethereal False) = over (searchFilter . properties) (pp [unetherealItem]) q
-applySearchFilterComponent q (MinSockets min) = over (searchFilter . properties) (pp [minSockets min]) q
-applySearchFilterComponent q (MaxSockets max) = over (searchFilter . properties) (pp [maxSockets max]) q
+applySearchFilterComponent q (MinSockets min') = over (searchFilter . properties) (pp [minSockets min']) q
+applySearchFilterComponent q (MaxSockets max') = over (searchFilter . properties) (pp [maxSockets max']) q
 applySearchFilterComponent q (Properties props) = over (searchFilter . properties) (f props) q
   where
-    f toAdd props = pp (decodeProperties toAdd) (removeEmptyProperty props)
+    f toAdd props' = pp (decodeProperties toAdd) (removeEmptyProperty props')
 
 podUriParser :: Parser SearchQuery
 podUriParser = do
-  string "https://beta.pathofdiablo.com/trade-search?"
+  void $ string "https://beta.pathofdiablo.com/trade-search?"
   convert <$> many1 parsePodUriFragment
   where
     convert = foldr (flip applySearchFilterComponent) makeSearchQuery
@@ -206,6 +206,7 @@ parsePodUri t = case parse podUriParser "PoD URI" normalized of
 setProps :: [Property] -> SearchQuery -> SearchQuery
 setProps = set (searchFilter . properties)
 
+emptyQuery :: SearchQuery
 emptyQuery =
   set (searchFilter . quality) [] $
     setProps [] makeSearchQuery
@@ -221,16 +222,14 @@ itemPropToPartialSQ (ItemProperty pCode (Just v) _ _) = setProps [makeValuedProp
 
 hitToSearch :: Hit -> SearchQuery
 hitToSearch h@Hit {..} =
-  foldr1 (<>) $
-    ( set (searchFilter . item) [_name] $
-        set (searchFilter . quality) [normalizeQualityFilter $ h ^. itemJson . nQualityCode] $
-          set (searchFilter . poster) _username $
-            set
-              (searchFilter . levelReq)
-              (T.pack . show $ _lvlReq)
-              emptyQuery
-    ) :
-    propz
+  foldr
+    do (<>)
+    do
+      emptyQuery & set (searchFilter . item) [_name]
+        & searchFilter . quality .~ [normalizeQualityFilter $ h ^. itemJson . nQualityCode]
+        & searchFilter . poster .~ _username
+        & searchFilter . levelReq .~ (T.pack . show) _lvlReq
+    do propz
   where
     propz = itemPropToPartialSQ <$> _itemProperties
     normalizeQualityFilter :: Text -> Text
@@ -254,18 +253,18 @@ hitToSearch h@Hit {..} =
     normalizeQualityFilter f = f
 
 searchToUrl :: SearchQuery -> Text
-searchToUrl q@(SearchQuery SearchFilter {..}) =
+searchToUrl (SearchQuery SearchFilter {..}) =
   T.replace " " "+" $
     "https://beta.pathofdiablo.com/trade-search?"
       <> selectedItem
-      <> quality
-      <> poster
-      <> itemType
+      <> quality'
+      <> poster'
+      <> itemType'
       <> lvlReq
       <> corrupted
       <> ethereal
-      <> minSockets
-      <> maxSockets
+      <> minSockets'
+      <> maxSockets'
       <> encodedProperties
   where
     wrap k = maybe "" (T.append k)
@@ -273,15 +272,15 @@ searchToUrl q@(SearchQuery SearchFilter {..}) =
     sockets qp pc cmp = maybe "" (T.append qp) (_propertyValue =<< filter (\p -> (Just pc == _propertyCode p) && (cmp == _comparitor p)) _properties ^? ix 0)
 
     selectedItem = wrap "selectedItem=" (_item ^? ix 0)
-    quality = wrap "&quality=" (_quality ^? ix 0)
-    poster = wrap "&poster=" (Just _poster)
+    quality' = wrap "&quality=" (_quality ^? ix 0)
+    poster' = wrap "&poster=" (Just _poster)
     -- want = wrap "want=" (Just _need)
-    itemType = wrap "&selectedItemType=" _itemType
+    itemType' = wrap "&selectedItemType=" _itemType
     lvlReq = wrap "&levelReq=" (Just _levelReq)
     corrupted = wrap' "Corrupted" "&corrupted="
     ethereal = wrap' "EtherealCannotBeRepaired" "&ethereal="
-    minSockets = sockets "&minSockets=" "Socketed" "gte"
-    maxSockets = sockets "&maxSockets=" "Socketed" "lte"
+    minSockets' = sockets "&minSockets=" "Socketed" "gte"
+    maxSockets' = sockets "&maxSockets=" "Socketed" "lte"
     filteredProperties = filter (\p -> (Just "Corrupted" /= _propertyCode p) && (Just "EtherealCannotBeRepaired" /= _propertyCode p) && (Just "Socketed" /= _propertyCode p)) _properties
     encodedProperties = T.append "&properties=" $ decodeUtf8 $ B64.encode $ B.toStrict $ encode filteredProperties
 
@@ -324,14 +323,14 @@ data SearchFilterComponent
 parseLabelText :: String -> (Text -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseLabelText label constructor = do
   optional (many1 (char ' '))
-  string label
+  void $ string label
   out <- T.pack <$> many1 (noneOf [' '])
   return $ constructor out
 
 parseLabelDigitText :: String -> (Text -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseLabelDigitText label constructor = do
   optional (many1 (char ' '))
-  string label
+  void $ string label
   out <- T.pack . c <$> oneOf "123456"
   return $ constructor out
   where
@@ -340,23 +339,25 @@ parseLabelDigitText label constructor = do
 parseLabelPlusOptionsText :: String -> [String] -> (Text -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseLabelPlusOptionsText label options constructor = do
   optional (many1 (char ' '))
-  string label
+  void $ string label
   out <- T.pack <$> f parsers
   return $ constructor out
   where
     parsers = fmap (try . string) options
     f (x : xs) = foldr (<|>) x xs
+    f [] = error "parseLabelPlusOptionsText unexpeceted []"
 
 parseLabelPlusOptionsTextList :: String -> [String] -> ([Text] -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseLabelPlusOptionsTextList label options constructor = do
   optional (many1 (char ' '))
-  string label
+  void $ string label
   out <- T.pack <$$> many1 (optional (char ',') >> f parsers)
   return $ constructor out
   where
     (<$$>) = fmap . fmap
     parsers = fmap (try . string) options
     f (x : xs) = foldr (<|>) x xs
+    f [] = error "parseLabelPlusOptionsTextList unexpeceted []"
 
 parseLabelBool :: String -> (Bool -> SearchFilterComponent) -> Parser SearchFilterComponent
 parseLabelBool label constructor = do
@@ -366,13 +367,14 @@ parseLabelBool label constructor = do
     f (x : _)
       | x == '+' = True
       | otherwise = False
+    f [] = error "parseLabelBool unexpeceted []"
 
 sItemNameParser :: Parser SearchFilterComponent
 sItemNameParser = do
   optional (many1 (char ' '))
-  char '"'
+  void $ char '"'
   itemName <- T.pack <$> many1 (noneOf ['"'])
-  char '"'
+  void $ char '"'
   return $ SelectedItems [itemName]
 
 sItemQualityParser :: Parser SearchFilterComponent

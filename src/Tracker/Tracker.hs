@@ -6,27 +6,40 @@
 module Tracker.Tracker (startTracker) where
 
 import App.Config
+  ( AppCtx (..)
+  , Config (Config)
+  , RenderConfig (RenderConfig, rnDpi, rnFontPath)
+  )
 import App.Database (TrackRequest (searchQuery))
 import qualified App.Database as DB
-import App.Logging
-import App.Monad
+import App.Logging (HasLogger, logGeneric)
+import App.Monad (AppM (runAppM))
 import Control.Concurrent (threadDelay)
-import Control.Monad
-import Control.Monad.Except
+import Control.Monad (forever)
+import Control.Monad.Except (MonadError, MonadIO (..), runExceptT)
 import Control.Monad.Reader
+  ( MonadReader (ask)
+  , ReaderT (runReaderT)
+  )
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.PostgreSQL.Simple
+import Database.PostgreSQL.Simple (Connection)
 import PoD.Api (doSearch)
 import PoD.Parser (hitToSearch, searchToUrl)
 import PoD.Rendering (renderHit)
 import PoD.Types (Hit (..), SearchResponse (SearchResponse, _hits))
-import System.Random
 import System.Random.Stateful
-import Telegram.Bot.Api.Client
+  ( UniformRange (uniformRM)
+  , globalStdGen
+  )
+import Telegram.Bot.Api.Client (TelegramClient (sendPhoto))
 import Telegram.Bot.Api.Types
+  ( InlineKeyboardButton (InlineKeyboardButton)
+  , InlineKeyboardMarkup (InlineKeyboardMarkup)
+  , SendPhotoRequest (SendPhotoRequest)
+  )
 import Text.InterpolatedString.QM (qms)
 
 startTracker :: AppCtx Connection -> IO ()
@@ -41,7 +54,6 @@ startTracker ctx@AppCtx {..} = do
 
 runTracker :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => m ()
 runTracker = do
-  AppCtx {..} <- ask
   mbt <- DB.findOneToTrack
   case mbt of
     Nothing -> DB.resetTrackRequests
@@ -50,12 +62,12 @@ runTracker = do
       newTrades <- DB.findNewHits _hits
       sequence_ (notify t <$> newTrades)
       sequence_ (DB.saveTrade <$> newTrades)
-      now <- liftIO $ getCurrentTime
+      now <- liftIO getCurrentTime
       DB.setAsTracked userId (fromMaybe 0 requestId) now
 
 notify :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => TrackRequest -> Hit -> m ()
-notify tr@DB.TrackRequest {..} hit@Hit {..} = do
-  ctx@(AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font) <- ask
+notify DB.TrackRequest {..} hit@Hit {..} = do
+  AppCtx (Config _ _ _ _ _ _ RenderConfig {..}) _ _ _ font <- ask
   let image = renderHit font (fromIntegral rnDpi) hit
       url = searchToUrl . hitToSearch $ hit
       rid = T.pack . show $ fromMaybe 0 requestId
