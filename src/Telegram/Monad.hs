@@ -29,5 +29,5 @@ data TelegramAction = WithKeyboard TelegramActionSimple InlineKeyboardMarkup | N
 
 type TelegramM m a = ReplyM TelegramAction TelegramAction m a
 
-runTelegramM :: Monad m => (TelegramAction -> m a) -> TelegramM m a -> m ()
-runTelegramM f = void . runReplyM f f
+runTelegramM :: Monad m => (TelegramAction -> m ()) -> TelegramM m TelegramAction -> m ()
+runTelegramM f = runReplyM f f f

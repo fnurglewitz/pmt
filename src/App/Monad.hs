@@ -25,12 +25,12 @@ instance MonadTrans (ReplyM s e) where
   lift = ReplyM . lift . lift
 
 -- the output of the handler is the success message
-runReplyM :: Monad m => (s -> m a) -> (e-> m a) -> ReplyM s e m a -> m a
-runReplyM f g (unReplyM -> handler) = do
+runReplyM :: Monad m => (s -> m ()) -> (e-> m ()) -> (a-> m ()) -> ReplyM s e m a -> m ()
+runReplyM fs fe fa (unReplyM -> handler) = do
   action <- runExceptT $ S.mapM_
-    do lift . f
+    do lift . fs
     do handler
-  either g pure action
+  either fe fa action
 
 replyLog :: Monad m => s -> ReplyM s e m ()
 replyLog = ReplyM . S.yield
