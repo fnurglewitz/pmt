@@ -15,7 +15,7 @@ import App.Config ( AppCtx (..) )
 import App.Database (Auth (..), DB)
 import qualified App.Database as DB
 import App.Logging (HasLogger (logError), logGeneric)
-import App.Monad (AppM (runAppM))
+import App.Monad
 import Control.Concurrent (threadDelay)
 import Control.Monad.Except
   ( MonadError (throwError)
@@ -169,7 +169,7 @@ trackCommand m@Message {..} = do
         do NoKeyboard $ ReplyMessage m [qms|Maximum number of track requests reached ({aMaxTrackRequests}). Track request denied.|]
       now <- liftIO getCurrentTime
       lift $ DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query trName False now now
-      pure $ NoKeyboard $ ReplyMessage m "Track request accepted"
+      replyLog $ NoKeyboard $ ReplyMessage m "Track request accepted"
   where
     userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
 
@@ -180,7 +180,7 @@ listTrackCommand m@Message {..} = do
     runTelegramM executeBotAction $ do
       t <- lift $ DB.listTrackRequest $ tshow (maybe 0 userId from)
       let msgTxt = [qms|Track requests ({length t}/{aMaxTrackRequests}):\n|] <> mconcat (toListElem <$> t)
-      pure $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
+      replyLog $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
     where
       toListElem DB.TrackRequest {..} = [qms|{fromMaybe (-1) requestId} - {notes}\n|]
       toKeyboardBtn DB.TrackRequest {..} =
@@ -196,7 +196,7 @@ priceCheckCommand m@Message {..} = runTelegramM executeBotAction $ do
       DB.PriceCheck {..} <- dieOnNothing mbPc $ NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName'}|]
       SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
       let msg = "<pre>" <> priceCheckTable (hitToRow (fromMaybe "" pcConfig) <$> _hits) <> "</pre>"
-      pure $ NoKeyboard $ ReplyMessage m msg
+      replyLog $ NoKeyboard $ ReplyMessage m msg
   where
     hitToRow cfg hit@Hit {..} = (_username, [applyConfig cfg hit, _note])
     userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
@@ -214,7 +214,7 @@ addPriceCheckCommand m@Message {..} = do
         do pcLen >= fromIntegral aMaxPriceChecks 
         do NoKeyboard $ ReplyMessage m [qms|Maximum number of price checks reached ({aMaxPriceChecks}). Price check denied.|]
       lift $ DB.savePc $ DB.PriceCheck Nothing userIdTxt pcName url query Nothing
-      pure $ NoKeyboard $ ReplyMessage m "PriceCheck saved"
+      replyLog $ NoKeyboard $ ReplyMessage m "PriceCheck saved"
   where
     userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
 
@@ -225,7 +225,7 @@ deletePriceCheckCommand m@Message {..} = do
     mbPc <- lift $ DB.findPc userIdTxt pcName
     void $ dieOnNothing mbPc (NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName}|])
     lift $ DB.deletePc userIdTxt pcName
-    pure $ NoKeyboard $ ReplyMessage m "PriceCheck deleted"
+    replyLog $ NoKeyboard $ ReplyMessage m "PriceCheck deleted"
   where
     userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
 
@@ -236,7 +236,7 @@ listPriceCheckCommand m@Message {..} = do
     runTelegramM executeBotAction $ do
       t <- lift $ DB.listPc $ tshow (maybe 0 userId from)
       let msgTxt = [qms|Price checks ({length t}/{aMaxPriceChecks}):\n|] <> mconcat (toListElem <$> t)
-      pure $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
+      replyLog $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
   where
     toListElem DB.PriceCheck {..} = [qms|<a href="{pcUrl}">{pcName}</a>\n|]
     toKeyboardBtn DB.PriceCheck {..} = InlineKeyboardButton [qms|delete:{pcName}|] Nothing (Just [qms|deletePc,{pcUserId},{pcName}|])
@@ -264,7 +264,7 @@ configurePriceCheckCommand m@Message {..} = do
           ]
         props = txtToBtn <$> (nub . concat $ hitToProps <$> _hits)
         curCfg = fromMaybe "- Not configured -" pcConfig
-    pure $ WithKeyboard (ReplyMessage m [qms|Current configuration:\n{curCfg}|]) (InlineKeyboardMarkup $ resetBtnRow : listToMatrix 2 props)
+    replyLog $ WithKeyboard (ReplyMessage m [qms|Current configuration:\n{curCfg}|]) (InlineKeyboardMarkup $ resetBtnRow : listToMatrix 2 props)
   where
     hitToProps Hit {..} = ((,) <$> _itemPropertyCode <*> _itemPropertyLabel) <$> filter (\ItemProperty {..} -> isJust _itemPropertyValue) _itemProperties
     userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
