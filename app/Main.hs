@@ -27,7 +27,7 @@ main = do
   loggerSet <- getLoggerSet
   luid <- newMVar (0 :: Integer)
   let ctx = AppCtx cfg loggerSet conn luid font
-  forkIO $ startTracker ctx
+  void . forkIO $ startTracker ctx
   print cfg
   startBot ctx
   where

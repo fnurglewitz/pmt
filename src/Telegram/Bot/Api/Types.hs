@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Telegram.Bot.Api.Types where
 
@@ -15,6 +16,7 @@ import Data.Aeson
     (.:?),
   )
 import qualified Data.ByteString as B
+import Data.List (find)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -222,3 +224,18 @@ instance FromJSON InlineKeyboardButton where
 instance ToJSON InlineKeyboardButton where
   toJSON (InlineKeyboardButton txt url dat) =
     object $ Prelude.filter ((/= Null) . snd) ["text" .= txt, "url" .= url, "callback_data" .= dat]
+
+getEntity :: Text -> Message -> Maybe Text
+getEntity entityType (Message _ _ _ _ (Just txt) (Just entities) _) = do
+  MessageEntity {..} <- find (\MessageEntity {..} -> eType == entityType) entities
+  let substr o l t = T.take l $ T.drop o t
+      entityTxt = substr (fromInteger eOffset) (fromInteger eLength) txt
+  return entityTxt
+getEntity _ _ = Nothing
+
+getEntities :: Text -> Message -> [Text]
+getEntities entityType (Message _ _ _ _ (Just txt) (Just entities) _) = do
+  let substr o l t = T.take l $ T.drop o t
+      entityTxt MessageEntity {..} = substr (fromInteger eOffset) (fromInteger eLength) txt
+  entityTxt <$> filter (\MessageEntity {..} -> eType == entityType) entities
+getEntities _ _ = []
