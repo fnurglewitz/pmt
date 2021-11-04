@@ -12,7 +12,6 @@
 module Telegram.Monad where
 
 import App.Monad ( ReplyM, runReplyM )
-import Control.Monad ( void )
 import qualified Data.ByteString as B
 import Data.Text (Text)
 import Telegram.Bot.Api.Types ( Message (..), InlineKeyboardMarkup(..) )

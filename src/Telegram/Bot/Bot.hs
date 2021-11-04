@@ -116,10 +116,10 @@ startBot ctx@AppCtx {..} = do
     threadDelay 1000000
 
 executeBotAction :: Effects m => TelegramAction -> m ()
-executeBotAction (NoKeyboard (ReplyMessage msg txt)) = replyToMessage msg txt
-executeBotAction (WithKeyboard (ReplyMessage msg txt) kb) = replyToMessageWithKeyboard msg txt kb
+executeBotAction (NoKeyboard (ReplyMessage Message{..} txt)) = sendMessage $ SendMessageRequest (tshow . chatId $ chat) txt True (Just messageId) Nothing
+executeBotAction (WithKeyboard (ReplyMessage Message{..} txt) kb) = sendMessage $ SendMessageRequest (tshow . chatId $ chat) txt True (Just messageId) (Just kb)
 executeBotAction NoAction = pure ()
-executeBotAction _ = undefined 
+executeBotAction _ = error "Unimplemented action"
 
 runBot :: Effects m => m ()
 runBot = do
@@ -153,7 +153,8 @@ handleCommand "/delpc" = lift . deletePriceCheckCommand
 handleCommand "/listpc" = listPriceCheckCommand
 handleCommand "/confpc" = lift . configurePriceCheckCommand
 -- none
-handleCommand cmd = \m -> lift $ replyToMessage m [qms|Unknown command: {cmd}|]
+handleCommand cmd = \m -> lift $ runTelegramM executeBotAction $ 
+  do pure $ NoKeyboard $ ReplyMessage m [qms|Unknown command: {cmd}|]
 
 trackCommand :: Effects m => Message -> Authorized m ()
 trackCommand m@Message {..} = do
@@ -329,16 +330,6 @@ deleteTrackRequestCallback _ params = do
        in DB.deleteTrackRequest uid (readDecimal trId)
   where
     readDecimal = T.foldl' (\a c -> a * 10 + toInteger (digitToInt c)) 0
-
-replyToMessage :: TelegramClient m => Message -> Text -> m ()
-replyToMessage Message {..} txt =
-  sendMessage $
-    SendMessageRequest (tshow . chatId $ chat) txt True (Just messageId) Nothing
-
-replyToMessageWithKeyboard :: TelegramClient m => Message -> Text -> InlineKeyboardMarkup -> m ()
-replyToMessageWithKeyboard Message {..} txt keyboard =
-  sendMessage $
-    SendMessageRequest (tshow . chatId $ chat) txt True (Just messageId) (Just keyboard)
 
 listToMatrix :: Int -> [a] -> [[a]]
 listToMatrix _ [] = []
