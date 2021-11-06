@@ -37,6 +37,7 @@ library
     Telegram.Bot.Api.Types
     Telegram.Bot.Auth
     Telegram.Bot.Bot
+    Telegram.Monad
     Tracker.Tracker
     Utils.Aeson
     Utils.Tabular

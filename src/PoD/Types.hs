@@ -217,10 +217,10 @@ data Hit = Hit
   deriving (Show, Generic)
 
 instance Eq Hit where
-  (==) h1 h2 = _tradeId h1 == _tradeId h2
+  (==) h1 h2 = _tradeId h1 == _tradeId h2 && _note h1 == _note h2
 
 instance Ord Hit where
-  compare h1 h2 = _tradeId h1 `compare` _tradeId h2
+  compare h1 h2 = _tradeId h1 `compare` _tradeId h2 <> _note h1 `compare` _note h2
 
 instance FromJSON Hit where
   parseJSON = withObject "Hit" $ \v ->

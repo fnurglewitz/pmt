@@ -13,7 +13,6 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Maybe ( fromMaybe )
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Time ( getCurrentTime )
 import Database.PostgreSQL.Simple
 import Telegram.Bot.Api.Client
@@ -31,11 +30,11 @@ checkAuth User {..} = do
         Nothing -> do
           now <- liftIO getCurrentTime
           DB.saveAuth $ DB.Auth userId now False 0 0 (fromMaybe "" username) -- TODO
-          sendMessage $ SendMessageRequest (T.pack . show $ userId) "Unauthorized" True Nothing Nothing
+          sendMessage $ SendMessageRequest userId "Unauthorized" True Nothing Nothing
           throwError "Unauthorized"
         Just auth@DB.Auth {..} -> do
           if aEnabled
             then return auth
             else do
-              sendMessage $ SendMessageRequest (T.pack . show $ userId) "Unauthorized" True Nothing Nothing
+              sendMessage $ SendMessageRequest userId "Unauthorized" True Nothing Nothing
               throwError "Unauthorized"

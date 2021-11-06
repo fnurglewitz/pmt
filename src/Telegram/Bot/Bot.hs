@@ -20,6 +20,7 @@ import Control.Concurrent (threadDelay)
 import Control.Monad.Except
   ( MonadError (throwError)
   )
+import Control.Exception (SomeException, handle)
 import Control.Monad.Reader
   ( MonadReader (ask)
   , ReaderT (runReaderT)
@@ -30,6 +31,7 @@ import Control.Monad.Trans.Maybe
 import Data.Char (digitToInt)
 import Data.List (find, nub)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
+import Data.String (IsString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -67,19 +69,21 @@ import Streaming
   , void
   )
 import Telegram.Bot.Api.Client
-  ( TelegramClient (editMessage, getUpdate, sendMessage)
+  ( TelegramClient (editMessage, getUpdate, sendMessage, editMessageReplyMarkup)
   )
 import Telegram.Bot.Api.Types
   ( CallbackQuery (..)
   , Chat (Chat, chatId, chatType)
   , EditMessageRequest (EditMessageRequest)
+  , EditMessageReplyMarkupRequest (EditMessageReplyMarkupRequest)
   , InlineKeyboardButton
       ( InlineKeyboardButton
       , btnCbkData
       , btnText
       , btnUrl
       )
-  , InlineKeyboardMarkup (InlineKeyboardMarkup)
+  , InlineKeyboardMarkup (InlineKeyboardMarkup, inlineKeyboard)
+  , InlineKeyboardButton(..)
   , Message (..)
   , SendMessageRequest (SendMessageRequest)
   , Update (Update)
@@ -108,16 +112,22 @@ tshow = T.pack . show
 startBot :: AppCtx Connection -> IO ()
 startBot ctx@AppCtx {..} = do
   logGeneric logger "INFO" config "Starting telegram bot"
-  forever $ do
-    r <- runExceptT $ runReaderT (runAppM runBot) ctx
-    case r of
-      Left err -> logGeneric logger "ERROR" config err
-      Right x -> pure x
-    threadDelay 1000000
+  forever $ handle 
+    do (\e -> logGeneric logger "ERROR" config $ tshow (e :: SomeException)) 
+    do
+      r <- runExceptT $ runReaderT (runAppM runBot) ctx
+      case r of
+        Left err -> logGeneric logger "ERROR" config err
+        Right x -> pure x
+      threadDelay 1000000
 
 executeBotAction :: Effects m => TelegramAction -> m ()
-executeBotAction (NoKeyboard (ReplyMessage Message{..} txt)) = sendMessage $ SendMessageRequest (tshow . chatId $ chat) txt True (Just messageId) Nothing
-executeBotAction (WithKeyboard (ReplyMessage Message{..} txt) kb) = sendMessage $ SendMessageRequest (tshow . chatId $ chat) txt True (Just messageId) (Just kb)
+executeBotAction (NoKeyboard (ReplyMessage Message{..} txt)) = sendMessage $ SendMessageRequest (chatId chat) txt True (Just messageId) Nothing
+executeBotAction (WithKeyboard (ReplyMessage Message{..} txt) kb) = sendMessage $ SendMessageRequest (chatId chat) txt True (Just messageId) (Just kb)
+executeBotAction (NoKeyboard (EditMessage Message{..} txt)) = editMessage $ EditMessageRequest (chatId chat) messageId txt Nothing
+executeBotAction (WithKeyboard (EditMessage Message{..} txt) kb) = editMessage $ EditMessageRequest (chatId chat) messageId txt (Just kb)
+executeBotAction (NoKeyboard (EditMessageReplyMarkup Message{..})) = editMessageReplyMarkup $ EditMessageReplyMarkupRequest (chatId chat) messageId Nothing
+executeBotAction (WithKeyboard (EditMessageReplyMarkup Message{..}) kb) = editMessageReplyMarkup $ EditMessageReplyMarkupRequest (chatId chat) messageId (Just kb)
 executeBotAction NoAction = pure ()
 executeBotAction _ = error "Unimplemented action"
 
@@ -141,7 +151,6 @@ handleMessage m@Message {..} = void $ runMaybeT do
   cmd <- hoistMaybe $ getEntity "bot_command" m
   lift $ flip runReaderT auth $ handleCommand cmd m
 
--- handleCommand :: Effects m=> Text -> DB.Auth -> Message -> m ()
 handleCommand :: Effects m => Text -> Message -> Authorized m ()
 -- Track requests
 handleCommand "/track" = trackCommand
@@ -149,7 +158,6 @@ handleCommand "/list" = listTrackCommand
 -- Price checks
 handleCommand "/addpc" = addPriceCheckCommand
 handleCommand "/pc" = lift . priceCheckCommand
-handleCommand "/delpc" = lift . deletePriceCheckCommand
 handleCommand "/listpc" = listPriceCheckCommand
 handleCommand "/confpc" = lift . configurePriceCheckCommand
 -- none
@@ -163,46 +171,39 @@ trackCommand m@Message {..} = do
     runTelegramM executeBotAction $ do
       url <- dieOnNothing (getEntity "url" m) $ NoKeyboard $ ReplyMessage m "No PoD url provided"
       trName <- dieOnNothing (getEntity "hashtag" m) $ NoKeyboard $ ReplyMessage m "No TrackRequest name provided"
+      userId' <- dieOnNothing (userId <$> from) NoAction 
       query <- dieOnLeft 
         do parsePodUri url
         do \err -> NoKeyboard $ ReplyMessage m [qms|Could not parse url: {err}|]
-      trLen <- lift $ length <$> DB.listTrackRequest userIdTxt
+      trLen <- lift $ length <$> DB.listTrackRequest userId'
       dieIf 
         do trLen >= fromIntegral aMaxTrackRequests
         do NoKeyboard $ ReplyMessage m [qms|Maximum number of track requests reached ({aMaxTrackRequests}). Track request denied.|]
       now <- liftIO getCurrentTime
-      lift $ DB.saveTrackRequest $ DB.TrackRequest Nothing userIdTxt url query trName False now now
+      lift $ DB.saveTrackRequest $ DB.TrackRequest Nothing userId' trName url False query now now
       pure $ NoKeyboard $ ReplyMessage m "Track request accepted"
-  where
-    userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
 
 listTrackCommand :: Effects m => Message -> Authorized m ()
 listTrackCommand m@Message {..} = do
   Auth {..} <- ask
   lift $
     runTelegramM executeBotAction $ do
-      t <- lift $ DB.listTrackRequest $ tshow (maybe 0 userId from)
-      let msgTxt = [qms|Track requests ({length t}/{aMaxTrackRequests}):\n|] <> mconcat (toListElem <$> t)
-      pure $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
-    where
-      toListElem DB.TrackRequest {..} = [qms|{fromMaybe (-1) requestId} - {notes}\n|]
-      toKeyboardBtn DB.TrackRequest {..} =
-        InlineKeyboardButton
-          do [qms|delete: {notes}|]
-          do Nothing
-          do Just [qms|stopTracking,{userId},{fromMaybe 0 requestId}|]
+      userId' <- dieOnNothing (userId <$> from) NoAction
+      t <- lift $ DB.listTrackRequest userId'
+      let msgTxt = [qms|Track requests ({length t}/{aMaxTrackRequests}):\n|] <> mconcat (trToListElem <$> t)
+      pure $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ trToDeleteKeyboardBtn <$> t)
 
 priceCheckCommand :: Effects m => Message -> m ()
 priceCheckCommand m@Message {..} = runTelegramM executeBotAction $ do
       pcName' <- dieOnNothing (text >>= listToMaybe . drop 1 . T.words) (NoKeyboard $ ReplyMessage m "No price check name provided")
-      mbPc <- lift $ DB.findPc userIdTxt pcName'
+      userId' <- dieOnNothing (userId <$> from) NoAction
+      mbPc <- lift $ DB.findPc userId' pcName'
       DB.PriceCheck {..} <- dieOnNothing mbPc $ NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName'}|]
       SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
       let msg = "<pre>" <> priceCheckTable (hitToRow (fromMaybe "" pcConfig) <$> _hits) <> "</pre>"
       pure $ NoKeyboard $ ReplyMessage m msg
   where
     hitToRow cfg hit@Hit {..} = (_username, [applyConfig cfg hit, _note])
-    userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
 
 addPriceCheckCommand :: Effects m => Message -> Authorized m ()
 addPriceCheckCommand m@Message {..} = do
@@ -212,43 +213,31 @@ addPriceCheckCommand m@Message {..} = do
       url <- dieOnNothing (getEntity "url" m) $ NoKeyboard $ ReplyMessage m "No PoD url provided"
       pcName <- dieOnNothing (getEntity "hashtag" m) $ NoKeyboard $ ReplyMessage m "No PriceCheck name provided"
       query <- dieOnLeft (parsePodUri url) $ \err -> NoKeyboard $ ReplyMessage m [qms|Could not parse url: {err}|]
-      pcLen <- lift $ length <$> DB.listPc userIdTxt
+      userId' <- dieOnNothing (userId <$> from) NoAction
+      pcLen <- lift $ length <$> DB.listPc userId'
       dieIf
         do pcLen >= fromIntegral aMaxPriceChecks 
         do NoKeyboard $ ReplyMessage m [qms|Maximum number of price checks reached ({aMaxPriceChecks}). Price check denied.|]
-      lift $ DB.savePc $ DB.PriceCheck Nothing userIdTxt pcName url query Nothing
+      now <- liftIO getCurrentTime
+      lift $ DB.savePc $ DB.PriceCheck Nothing userId' pcName url query Nothing now
       pure $ NoKeyboard $ ReplyMessage m "PriceCheck saved"
-  where
-    userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
-
-deletePriceCheckCommand :: Effects m => Message -> m ()
-deletePriceCheckCommand m@Message {..} = do
-  runTelegramM executeBotAction $ do
-    pcName <- dieOnNothing (text >>= listToMaybe . drop 1 . T.words) (NoKeyboard $ ReplyMessage m "No price check name provided")
-    mbPc <- lift $ DB.findPc userIdTxt pcName
-    void $ dieOnNothing mbPc (NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName}|])
-    lift $ DB.deletePc userIdTxt pcName
-    pure $ NoKeyboard $ ReplyMessage m "PriceCheck deleted"
-  where
-    userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
 
 listPriceCheckCommand :: Effects m => Message -> Authorized m ()
 listPriceCheckCommand m@Message {..} = do
   Auth {..} <- ask
   lift $ 
     runTelegramM executeBotAction $ do
-      t <- lift $ DB.listPc $ tshow (maybe 0 userId from)
-      let msgTxt = [qms|Price checks ({length t}/{aMaxPriceChecks}):\n|] <> mconcat (toListElem <$> t)
-      pure $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ toKeyboardBtn <$> t)
-  where
-    toListElem DB.PriceCheck {..} = [qms|<a href="{pcUrl}">{pcName}</a>\n|]
-    toKeyboardBtn DB.PriceCheck {..} = InlineKeyboardButton [qms|delete:{pcName}|] Nothing (Just [qms|deletePc,{pcUserId},{pcName}|])
+      userId' <- dieOnNothing (userId <$> from) NoAction
+      t <- lift $ DB.listPc userId'
+      let msgTxt = [qms|Price checks ({length t}/{aMaxPriceChecks}):\n|] <> mconcat (pcToListElem <$> t)
+      pure $ WithKeyboard (ReplyMessage m msgTxt) (InlineKeyboardMarkup $ listToMatrix 2 $ pcToDeleteKeyboardBtn <$> t)
 
 configurePriceCheckCommand :: Effects m => Message -> m ()
 configurePriceCheckCommand m@Message {..} = do
   runTelegramM executeBotAction $ do
     pcName' <- dieOnNothing (text >>= listToMaybe . drop 1 . T.words) (NoKeyboard $ ReplyMessage m "No price check name provided")
-    mbPc <- lift $ DB.findPc userIdTxt pcName'
+    userId' <- dieOnNothing (userId <$> from) NoAction
+    mbPc <- lift $ DB.findPc userId' pcName'
     DB.PriceCheck {..} <- dieOnNothing mbPc (NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName'}|])    
     SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
     let txtToBtn :: (Text, Text) -> InlineKeyboardButton -- needed, otherwise qms cannot understand that code is Text
@@ -270,7 +259,6 @@ configurePriceCheckCommand m@Message {..} = do
     pure $ WithKeyboard (ReplyMessage m [qms|Current configuration:\n{curCfg}|]) (InlineKeyboardMarkup $ resetBtnRow : listToMatrix 2 props)
   where
     hitToProps Hit {..} = ((,) <$> _itemPropertyCode <*> _itemPropertyLabel) <$> filter (\ItemProperty {..} -> isJust _itemPropertyValue) _itemProperties
-    userIdTxt = tshow (maybe 0 userId from) -- TODO: nice shit
 
 handleCallback :: Effects m => CallbackQuery -> m ()
 handleCallback cbk@CallbackQuery {..} = do
@@ -284,24 +272,33 @@ handleCallback cbk@CallbackQuery {..} = do
 handleCallbackCommand :: Effects m => Text -> CallbackQuery -> [Text] -> m ()
 handleCallbackCommand "deletePc" cbk params = deletePriceCheckCallback cbk params
 handleCallbackCommand "confPc" cbk params = configurePriceCheckCallback cbk params
-handleCallbackCommand "stopTracking" cbk params = deleteTrackRequestCallback cbk params
+handleCallbackCommand "deleteTr" cbk params = deleteTrackRequestCallback cbk params
+handleCallbackCommand "stopTracking" cbk params = stopTrackRequestCallback cbk params
 handleCallbackCommand cmd _ _ = logError [qms|"Unknown callback command: {cmd}|]
 
 deletePriceCheckCallback :: Effects m => CallbackQuery -> [Text] -> m ()
-deletePriceCheckCallback _ params = do
+deletePriceCheckCallback CallbackQuery {..} params = do
   if length params /= 3
     then logError [qms|wrong number of parameters ({length params}) for command deletePc|]
-    else
-      let uid = params !! 1
-          pcName = params !! 2
-       in DB.deletePc uid pcName
+    else do
+      runTelegramM executeBotAction $ do
+        let uid = readDecimal $ params !! 1
+            pcName = params !! 2
+        lift . void $ DB.deletePc uid pcName
+        t <- lift $ DB.listPc uid
+        mbAuth <- lift $ DB.getAuth uid
+        DB.Auth{..} <- dieOnNothing mbAuth NoAction
+        msg <- dieOnNothing cbkMessage NoAction
+        let msgTxt = [qms|Price checks ({length t}/{aMaxPriceChecks}):\n|] <> mconcat (pcToListElem <$> t)
+            kb = InlineKeyboardMarkup $ listToMatrix 2 $ pcToDeleteKeyboardBtn <$> t
+        pure $ WithKeyboard (EditMessage msg msgTxt) kb
 
 configurePriceCheckCallback :: Effects m => CallbackQuery -> [Text] -> m ()
 configurePriceCheckCallback CallbackQuery {..} params = do
   if length params /= 4
     then logError [qms|wrong number of parameters ({length params}) for command confPc|]
     else do
-      let uid = params !! 1
+      let uid = readDecimal $ params !! 1
           pcName' = params !! 2
           code = params !! 3
       mbPc <- DB.findPc uid pcName'
@@ -313,7 +310,7 @@ configurePriceCheckCallback CallbackQuery {..} params = do
               oldKb = replyMarkup =<< cbkMessage
               newConf = updateCfg code pcConfig
           DB.configurePc uid pcName newConf
-          editMessage $ EditMessageRequest (tshow chatId) (tshow msgId) ("Current configuration:\n" <> fromMaybe "- Not configured -" newConf) oldKb
+          editMessage $ EditMessageRequest chatId msgId ("Current configuration:\n" <> fromMaybe "- Not configured -" newConf) oldKb
   where
     updateCfg :: Text -> Maybe Text -> Maybe Text
     updateCfg "RESET" _ = Nothing
@@ -321,15 +318,39 @@ configurePriceCheckCallback CallbackQuery {..} params = do
     updateCfg code (Just old) = Just $ old <> "/" <> code
 
 deleteTrackRequestCallback :: Effects m => CallbackQuery -> [Text] -> m ()
-deleteTrackRequestCallback _ params = do
+deleteTrackRequestCallback CallbackQuery {..} params = do
   if length params /= 3
     then logError [qms|wrong number of parameters ({length params}) for command stopTracking|]
-    else
-      let uid = params !! 1
-          trId = params !! 2
-       in DB.deleteTrackRequest uid (readDecimal trId)
+    else do
+      runTelegramM executeBotAction $ do
+        let uid = readDecimal $ params !! 1
+            trId = readDecimal $ params !! 2
+        lift . void $ DB.deleteTrackRequest uid trId
+        t <- lift $ DB.listTrackRequest uid
+        mbAuth <- lift $ DB.getAuth uid
+        DB.Auth{..} <- dieOnNothing mbAuth NoAction
+        msg <- dieOnNothing cbkMessage NoAction
+        let msgTxt = [qms|Track requests ({length t}/{aMaxTrackRequests}):\n|] <> mconcat (trToListElem <$> t)
+            kb = InlineKeyboardMarkup $ listToMatrix 2 $ trToDeleteKeyboardBtn <$> t
+        pure $ WithKeyboard (EditMessage msg msgTxt) kb
+
+stopTrackRequestCallback :: Effects m => CallbackQuery -> [Text] -> m ()
+stopTrackRequestCallback CallbackQuery {..} params = do
+  if length params /= 3
+    then logError [qms|wrong number of parameters ({length params}) for command stopTracking|]
+    else do
+      runTelegramM executeBotAction $ do
+        let uid = readDecimal $ params !! 1
+            trId = params !! 2
+        lift . void $ DB.deleteTrackRequest uid (readDecimal trId)
+        msg@Message{..} <- dieOnNothing cbkMessage NoAction
+        let oldKb = inlineKeyboard $ fromMaybe (InlineKeyboardMarkup []) replyMarkup
+            newKb = filter priceBtn oldKb
+        pure $ WithKeyboard (EditMessageReplyMarkup msg) (InlineKeyboardMarkup newKb)
   where
-    readDecimal = T.foldl' (\a c -> a * 10 + toInteger (digitToInt c)) 0
+    priceBtn [] = False
+    priceBtn ((InlineKeyboardButton "stop tracking" _ _):_) = False
+    priceBtn _ = True
 
 listToMatrix :: Int -> [a] -> [[a]]
 listToMatrix _ [] = []
@@ -347,3 +368,33 @@ applyConfig cfg Hit {..} =
     go [] _ = []
     go [code] ps = filter (/= T.empty) [fromMaybe "" $ _itemPropertyValue =<< find (\ItemProperty {..} -> code == _itemPropertyCode) ps]
     go (c : cs) ps = go [c] ps ++ go cs ps
+
+readDecimal :: Text -> Integer
+readDecimal = T.foldl' (\a c -> a * 10 + toInteger (digitToInt c)) 0
+
+trToListElem :: (Monoid a, IsString a) => DB.TrackRequest -> a
+trToListElem DB.TrackRequest {..} = [qms|<a href="{trPodUrl}">{trName}</a>\n|]
+
+trToDeleteKeyboardBtn :: DB.TrackRequest -> InlineKeyboardButton
+trToDeleteKeyboardBtn DB.TrackRequest {..} =
+    InlineKeyboardButton
+      do [qms|delete: {trName}|]
+      do Nothing
+      do Just [qms|deleteTr,{trUserId},{fromMaybe (-1) trRequestId}|]
+
+trToStopKeyboardBtn :: DB.TrackRequest -> InlineKeyboardButton
+trToStopKeyboardBtn DB.TrackRequest {..} =
+    InlineKeyboardButton
+      do [qms|delete: {trName}|]
+      do Nothing
+      do Just [qms|stopTracking,{trUserId},{fromMaybe (-1) trRequestId}|]
+
+pcToListElem :: (Monoid a, IsString a) => DB.PriceCheck -> a
+pcToListElem DB.PriceCheck {..} = [qms|<a href="{pcUrl}">{pcName}</a>\n|]
+
+pcToDeleteKeyboardBtn :: DB.PriceCheck -> InlineKeyboardButton
+pcToDeleteKeyboardBtn DB.PriceCheck {..} = 
+  InlineKeyboardButton 
+    do [qms|delete:{pcName}|] 
+    do Nothing 
+    do Just [qms|deletePc,{pcUserId},{pcName}|]

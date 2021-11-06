@@ -170,14 +170,14 @@ instance ToJSON Chat where
     object $ Prelude.filter ((/= Null) . snd) ["id" .= chatId, "type" .= chatType]
 
 data SendPhotoRequest = SendPhotoRequest
-  { pChatId :: Text,
+  { pChatId :: Integer,
     content :: B.ByteString,
     pInlineKeyboard :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show)
 
 data SendMessageRequest = SendMessageRequest
-  { mChatId :: Text,
+  { mChatId :: Integer,
     mText :: Text,
     mDisableNotification :: Bool,
     mReplyToMsgId :: Maybe Integer,
@@ -186,12 +186,18 @@ data SendMessageRequest = SendMessageRequest
   deriving (Eq, Show)
 
 data EditMessageRequest = EditMessageRequest
-  { eChatId :: Text,
-    eMessageId :: Text,
+  { eChatId :: Integer,
+    eMessageId :: Integer,
     eText :: Text,
     eInlineKeyboard :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show)
+
+data EditMessageReplyMarkupRequest = EditMessageReplyMarkupRequest {
+    rChatId :: Integer,
+    rMessageId :: Integer,
+    rInlineKeyboard :: Maybe InlineKeyboardMarkup  
+} deriving (Eq, Show)
 
 newtype InlineKeyboardMarkup = InlineKeyboardMarkup
   { inlineKeyboard :: [[InlineKeyboardButton]]

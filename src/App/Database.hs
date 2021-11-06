@@ -16,17 +16,18 @@ import Data.Maybe (listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, getCurrentTime)
 import Database.PostgreSQL.Simple
   ( ConnectInfo (ConnectInfo)
   , Connection
   , FromRow
   , In (In)
-  , Only (Only, fromOnly)
+  , Only (fromOnly)
   , ToRow
   , connect
   , execute
   , execute_
+  , executeMany
   , query
   , query_
   )
@@ -42,21 +43,22 @@ class (Monad m) => DB m where
   getAuth :: Integer -> m (Maybe Auth)
 
   saveTrackRequest :: TrackRequest -> m ()
-  listTrackRequest :: Text -> m [TrackRequest]
-  deleteTrackRequest :: Text -> Integer -> m ()
+  listTrackRequest :: Integer -> m [TrackRequest]
+  deleteTrackRequest :: Integer -> Integer -> m ()
   findOneToTrack :: m (Maybe TrackRequest)
-  setAsTracked :: Text -> Integer -> UTCTime -> m ()
+  setAsTracked :: Integer -> Integer -> UTCTime -> m ()
   resetTrackRequests :: m ()
 
-  saveTrade :: Hit -> m ()
-  findTrade :: Text -> m [TradeListing]
-  findNewHits :: [Hit] -> m [Hit]
+  saveHit :: Hit -> m ()
+  findHit :: Text -> m (Maybe Hit)
+  findNewHitsForRequest :: Integer -> [Hit] -> m [Hit]
+  saveHitsForRequest :: Integer -> [Hit] -> m ()
 
   savePc :: PriceCheck -> m ()
-  findPc :: Text -> Text -> m (Maybe PriceCheck)
-  listPc :: Text -> m [PriceCheck]
-  deletePc :: Text -> Text -> m ()
-  configurePc :: Text -> Text -> Maybe Text -> m ()
+  findPc :: Integer -> Text -> m (Maybe PriceCheck)
+  listPc :: Integer -> m [PriceCheck]
+  deletePc :: Integer -> Text -> m ()
+  configurePc :: Integer -> Text -> Maybe Text -> m ()
 
 instance (MonadIO m) => DB (AppM Connection e m) where
   saveAuth Auth {..} = do
@@ -65,13 +67,12 @@ instance (MonadIO m) => DB (AppM Connection e m) where
       liftIO $
         execute
           conn
-          [sql| INSERT INTO public.auth (user_id, request_time, enabled, max_price_checks, max_track_requests, username) 
-                      VALUES (?, ?, ?, ?, ?, ?) |]
-          (aUserId, aRequestTime, aEnabled, aMaxPriceChecks, aMaxTrackRequests, aUsername)
+          [sql|INSERT INTO public.auth (user_id, request_ts, enabled, max_price_checks, max_track_requests, username) VALUES (?, ?, ?, ?, ?, ?)|]
+          (aUserId, aRequestTs, aEnabled, aMaxPriceChecks, aMaxTrackRequests, aUsername)
 
   getAuth uid = do
     conn <- asks db
-    r <- liftIO $ query conn "select user_id, request_time, enabled, max_price_checks, max_track_requests, username from public.auth where user_id = ? limit 1" [uid]
+    r <- liftIO $ query conn "select user_id, request_ts, enabled, max_price_checks, max_track_requests, username from public.auth where user_id = ? limit 1" [uid]
     return $ listToMaybe r
 
   saveTrackRequest TrackRequest {..} = do
@@ -80,14 +81,12 @@ instance (MonadIO m) => DB (AppM Connection e m) where
       liftIO $
         execute
           conn
-          [sql| INSERT INTO public.track_request (user_id, pod_url, tracked, last_track_time, created_at, search_query, notes) 
-                      VALUES (?, ?, ?, ?, ?, ?, ?)
-                      |]
-          (userId, podUrl, tracked, rLastTrackTime, rCreatedAt, searchQuery, notes)
+          [sql| INSERT INTO public.track_request (user_id, name, pod_url, tracked, search_query, last_track_ts, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)|]
+          (trUserId, trName, trPodUrl, trTracked, trSearchQuery, trLastTrackTs, trCreatedAt)
 
   listTrackRequest userId = do
     conn <- asks db
-    liftIO $ query conn "select request_id, user_id, pod_url, search_query, notes, tracked, last_track_time, created_at from public.track_request where user_id = ?" [userId]
+    liftIO $ query conn "select request_id, user_id, name, pod_url, tracked, search_query, last_track_ts, created_at from public.track_request where user_id = ?" [userId]
 
   deleteTrackRequest userId requestId = do
     conn <- asks db
@@ -100,59 +99,70 @@ instance (MonadIO m) => DB (AppM Connection e m) where
 
   findOneToTrack = do
     conn <- asks db
-    r <- liftIO $ query_ conn "select request_id, user_id, pod_url, search_query, notes, tracked, last_track_time, created_at from public.track_request where tracked = false limit 1"
+    r <- liftIO $ query_ conn "select request_id, user_id, name, pod_url, tracked, search_query, last_track_ts, created_at from public.track_request where tracked = false limit 1"
     return $ listToMaybe r
 
   setAsTracked uid id' time = do
     conn <- asks db
-    void $ liftIO $ execute conn "update public.track_request set tracked = true, last_track_time = ? where user_id = ? and request_id = ?" (time, uid, id')
+    void $ liftIO $ execute conn "update public.track_request set tracked = true, last_track_ts = ? where user_id = ? and request_id = ?" (time, uid, id')
 
   resetTrackRequests = do
     conn <- asks db
     void $ liftIO $ execute_ conn "update public.track_request set tracked = false"
 
-  saveTrade hit@Hit {..} = do
+  saveHit hit@Hit {..} = do
     conn <- asks db
+    now <- liftIO getCurrentTime
     void $
       liftIO $
         execute
           conn
-          [sql| INSERT INTO public.trade_listing (trade_id, seller_id, seller, note, difficulty, char_name, created_at, hit) 
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                      ON CONFLICT (trade_id) DO UPDATE
-                        SET seller_id = ?,
-                            seller = ?,
-                            note = ?,
-                            difficulty = ?,
-                            char_name = ?,
-                            created_at = ?,
-                            hit = ?;
-                      |]
-          (_tradeId, _userId, _username, _note, _difficulty, _characterName, _createdAt, hit, _userId, _username, _note, _difficulty, _characterName, _createdAt, hit)
+          [sql|INSERT INTO public.hit (trade_id, note, hit, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (trade_id, note) DO NOTHING;|]
+          (_tradeId, _note, hit, now)
 
-  findTrade tid = do
+  findHit tid = do
     conn <- asks db
-    liftIO $ query conn "select * from public.trade_listing where trade_id = ?" [tid]
+    hit <- liftIO $ query conn "select hit from public.hit where trade_id = ? order by created_at desc limit 1" [tid]
+    return $ listToMaybe (fromOnly <$> hit)
 
-  findNewHits hits = do
+  findNewHitsForRequest rid hits = do
     conn <- asks db
-    existing <- liftIO $ query conn "select hit from public.trade_listing where trade_id in ?" (Only (In $ _tradeId <$> hits)) -- TODO: doesn't work for multi-user...
+    existing <- liftIO $ query conn [sql|
+          select B.hit
+          from
+            public.track_request_hit A
+              inner join public.hit B on A.trade_id = B.trade_id and A.note = B.note
+          where 
+                  A.request_id = ? 
+              and A.trade_id in ?
+          |] (rid, In $ _tradeId <$> hits)
     return $ findNew (fromOnly <$> existing)
     where
       findNew t = S.toList $ S.fromList hits S.\\ S.fromList t
 
+  saveHitsForRequest rid hits = do
+    conn <- asks db
+    void $
+      liftIO $
+        executeMany
+          conn
+          [sql| INSERT INTO public.track_request_hit (request_id, trade_id, note) VALUES (?, ?, ?)|] (hitToRow <$> hits)
+    where
+      hitToRow Hit{..} = (rid, _tradeId, _note)
+
   savePc PriceCheck {..} = do
     conn <- asks db
+    now <- liftIO getCurrentTime
     void $
       liftIO $
         execute
           conn
-          [sql| INSERT INTO public.price_check (user_id, name, url, search_query) VALUES (?, ?, ?, ?)|]
-          (pcUserId, pcName, pcUrl, pcSearchQuery)
+          [sql| INSERT INTO public.price_check (user_id, name, url, search_query, created_at) VALUES (?, ?, ?, ?, ?)|]
+          (pcUserId, pcName, pcUrl, pcSearchQuery, now)
 
   findPc uid n = do
     conn <- asks db
-    liftIO $ query conn "select pc_id, user_id, name, url, search_query, config from public.price_check where user_id = ? and name = ?" (uid, n) <&> listToMaybe
+    liftIO $ query conn "select pc_id, user_id, name, url, search_query, config, created_at from public.price_check where user_id = ? and name = ?" (uid, n) <&> listToMaybe
 
   listPc uid = do
     conn <- asks db
@@ -166,43 +176,32 @@ instance (MonadIO m) => DB (AppM Connection e m) where
     conn <- asks db
     void $ liftIO $ execute conn "update public.price_check set config = ? where user_id = ? and name = ?" (config, uid, name)
 
-data TradeListing = TradeListing
-  { tradeId :: Text
-  , sellerId :: Integer
-  , seller :: Text
-  , note :: Text
-  , difficulty :: Text
-  , charName :: Text
-  , createdAt :: UTCTime
-  , hit :: Hit
-  }
-  deriving (Generic, FromRow, ToRow, Show)
-
 data TrackRequest = TrackRequest
-  { requestId :: Maybe Integer
-  , userId :: Text
-  , podUrl :: Text
-  , searchQuery :: SearchQuery
-  , notes :: Text
-  , tracked :: Bool
-  , rLastTrackTime :: UTCTime
-  , rCreatedAt :: UTCTime
+  { trRequestId :: Maybe Integer
+  , trUserId :: Integer
+  , trName :: Text
+  , trPodUrl :: Text
+  , trTracked :: Bool
+  , trSearchQuery :: SearchQuery
+  , trLastTrackTs :: UTCTime
+  , trCreatedAt :: UTCTime
   }
   deriving (Generic, FromRow, ToRow, Show)
 
 data PriceCheck = PriceCheck
   { pcId :: Maybe Integer
-  , pcUserId :: Text
+  , pcUserId :: Integer
   , pcName :: Text
   , pcUrl :: Text
   , pcSearchQuery :: SearchQuery
   , pcConfig :: Maybe Text
+  , pcCreatedAt :: UTCTime
   }
   deriving (Generic, FromRow, ToRow, Show)
 
 data Auth = Auth
   { aUserId :: Integer
-  , aRequestTime :: UTCTime
+  , aRequestTs :: UTCTime
   , aEnabled :: Bool
   , aMaxPriceChecks :: Integer
   , aMaxTrackRequests :: Integer

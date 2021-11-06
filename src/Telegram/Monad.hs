@@ -20,6 +20,7 @@ data TelegramActionSimple =
     SendMessage Integer Text
   | ReplyMessage Message Text
   | EditMessage Message Text
+  | EditMessageReplyMarkup Message
   | SendPhoto Integer B.ByteString
   | ReplyPhoto Message B.ByteString
   deriving (Show)

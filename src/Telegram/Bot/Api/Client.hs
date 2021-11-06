@@ -48,6 +48,7 @@ import Network.Wreq
   )
 import Telegram.Bot.Api.Types
   ( EditMessageRequest (..)
+  , EditMessageReplyMarkupRequest (..)
   , SendMessageRequest (..)
   , SendPhotoRequest (..)
   , TelegramResponse (TelegramResponse)
@@ -55,10 +56,14 @@ import Telegram.Bot.Api.Types
   , Update (updateId)
   )
 
+tshow :: Show a => a -> Text
+tshow = T.pack . show
+
 class (Monad m) => TelegramClient m where
   getUpdate :: m (Maybe Update)
   sendMessage :: SendMessageRequest -> m ()
   editMessage :: EditMessageRequest -> m ()
+  editMessageReplyMarkup :: EditMessageReplyMarkupRequest -> m ()
   sendPhoto :: SendPhotoRequest -> m ()
 
 instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
@@ -96,7 +101,7 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
 
   sendMessage SendMessageRequest {..} = do
     TelegramConfig tgBaseUrl (Token token) _ <- asks $ telegramCfg . config
-    let partChatId = partText "chat_id" mChatId
+    let partChatId = partText "chat_id" $ tshow mChatId
         partTxt = partText "text" mText
         partDisableNotification = partText "disable_notification" $ (T.pack . show) mDisableNotification
         partReplyTo = maybeToList $ partText "reply_to_message_id" . T.pack . show <$> mReplyToMsgId
@@ -106,17 +111,24 @@ instance (MonadIO m, e ~ Text) => TelegramClient (AppM a e m) where
 
   editMessage EditMessageRequest {..} = do
     TelegramConfig tgBaseUrl (Token token) _ <- asks $ telegramCfg . config
-    let partChatId = partText "chat_id" eChatId
-        partMsgId = partText "message_id" eMessageId
+    let partChatId = partText "chat_id" $ tshow eChatId
+        partMsgId = partText "message_id" $ tshow eMessageId
         partTxt = partText "text" eText
+        partParseMode = partText "parse_mode" "HTML"
         partKb = maybeToList $ partText "reply_markup" . decodeUtf8 . BL.toStrict . encode <$> eInlineKeyboard
-    void $ liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/editMessageText"])) $ [partChatId, partMsgId, partTxt] ++ partKb
+    void $ liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/editMessageText"])) $ [partChatId, partMsgId, partTxt, partParseMode] ++ partKb
+
+  editMessageReplyMarkup EditMessageReplyMarkupRequest {..} = do
+    TelegramConfig tgBaseUrl (Token token) _ <- asks $ telegramCfg . config
+    let partChatId = partText "chat_id" $ tshow rChatId
+        partMsgId = partText "message_id" $ tshow rMessageId
+        partKb = maybeToList $ partText "reply_markup" . decodeUtf8 . BL.toStrict . encode <$> rInlineKeyboard
+    void $ liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/editMessageReplyMarkup"])) $ [partChatId, partMsgId] ++ partKb
 
   sendPhoto SendPhotoRequest {..} = do
     TelegramConfig tgBaseUrl (Token token) _ <- asks $ telegramCfg . config
-    let partChatId = partText "chat_id" pChatId
+    let partChatId = partText "chat_id" $ tshow pChatId
         -- partCaption = partText "caption" want
         partPhoto = partBS "photo" content & (partFileName ?~ "photo.png") & (partContentType ?~ "image/png")
         partKb = maybeToList $ partText "reply_markup" . decodeUtf8 . BL.toStrict . encode <$> pInlineKeyboard
-    -- partKb = partText "reply_markup" $ decodeUtf8 $ BL.toStrict $ encode (InlineKeyboardMarkup [[InlineKeyboardButton want (Just url) Nothing], [InlineKeyboardButton "stop tracking" Nothing (Just (T.append "delete:" tradeId))]])
     void $ liftIO $ post (T.unpack (T.concat [tgBaseUrl, token, "/sendPhoto"])) $ [partChatId, partPhoto] ++ partKb
