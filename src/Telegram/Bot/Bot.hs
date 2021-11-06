@@ -86,6 +86,14 @@ import Telegram.Bot.Api.Types
   )
 import Telegram.Bot.Auth (checkAuth)
 import Telegram.Monad
+  ( TelegramAction (..)
+  , TelegramActionSimple
+      ( EditMessage
+      , EditMessageReplyMarkup
+      , ReplyMessage
+      )
+  , runTelegramM
+  )
 import Text.InterpolatedString.QM (qms)
 import Utils.Tabular (priceCheckTable)
 

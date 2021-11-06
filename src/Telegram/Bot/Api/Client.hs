@@ -6,6 +6,7 @@
 
 module Telegram.Bot.Api.Client where
 
+import App.AppM (AppM)
 import App.Config
   ( AppCtx
       ( AppCtx
@@ -18,7 +19,6 @@ import App.Config
   , Config (telegramCfg)
   , TelegramConfig (TelegramConfig)
   )
-import App.AppM (AppM)
 import Control.Arrow (left)
 import Control.Concurrent.MVar (readMVar, swapMVar)
 import Control.Exception (catch)
@@ -47,8 +47,8 @@ import Network.Wreq
   , responseBody
   )
 import Telegram.Bot.Api.Types
-  ( EditMessageRequest (..)
-  , EditMessageReplyMarkupRequest (..)
+  ( EditMessageReplyMarkupRequest (..)
+  , EditMessageRequest (..)
   , SendMessageRequest (..)
   , SendPhotoRequest (..)
   , TelegramResponse (TelegramResponse)
