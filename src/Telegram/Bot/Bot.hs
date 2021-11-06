@@ -7,27 +7,24 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# OPTIONS_GHC -Wall #-}
 
 module Telegram.Bot.Bot where
 
-import App.Config ( AppCtx (..) )                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
-import App.Database (Auth (..), DB)
-import qualified App.Database as DB
-import App.Logging (HasLogger (logError), logGeneric)
-import App.Monad
+import App.AppM (AppM (runAppM))
+import App.Config (AppCtx (..))
+import App.ReplyM (dieIf, dieOnLeft, dieOnNothing)
 import Control.Concurrent (threadDelay)
+import Control.Exception (SomeException, handle)
 import Control.Monad.Except
   ( MonadError (throwError)
   )
-import Control.Exception (SomeException, handle)
 import Control.Monad.Reader
   ( MonadReader (ask)
   , ReaderT (runReaderT)
   , forever
   )
-import Control.Monad.Trans.Except
-import Control.Monad.Trans.Maybe
+import Control.Monad.Trans.Except (runExceptT)
+import Control.Monad.Trans.Maybe (MaybeT (..))
 import Data.Char (digitToInt)
 import Data.List (find, nub)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
@@ -36,6 +33,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.PostgreSQL.Simple (Connection)
+import qualified Database.Types as DB
+import Logging.Logger (logGeneric)
+import Logging.Types (HasLogger (logError))
 import PoD.Api (doSearch)
 import PoD.Parser (parsePodUri)
 import PoD.Types
@@ -69,21 +69,15 @@ import Streaming
   , void
   )
 import Telegram.Bot.Api.Client
-  ( TelegramClient (editMessage, getUpdate, sendMessage, editMessageReplyMarkup)
+  ( TelegramClient (editMessage, editMessageReplyMarkup, getUpdate, sendMessage)
   )
 import Telegram.Bot.Api.Types
   ( CallbackQuery (..)
   , Chat (Chat, chatId, chatType)
-  , EditMessageRequest (EditMessageRequest)
   , EditMessageReplyMarkupRequest (EditMessageReplyMarkupRequest)
-  , InlineKeyboardButton
-      ( InlineKeyboardButton
-      , btnCbkData
-      , btnText
-      , btnUrl
-      )
+  , EditMessageRequest (EditMessageRequest)
+  , InlineKeyboardButton (..)
   , InlineKeyboardMarkup (InlineKeyboardMarkup, inlineKeyboard)
-  , InlineKeyboardButton(..)
   , Message (..)
   , SendMessageRequest (SendMessageRequest)
   , Update (Update)
@@ -92,6 +86,14 @@ import Telegram.Bot.Api.Types
   )
 import Telegram.Bot.Auth (checkAuth)
 import Telegram.Monad
+  ( TelegramAction (..)
+  , TelegramActionSimple
+      ( EditMessage
+      , EditMessageReplyMarkup
+      , ReplyMessage
+      )
+  , runTelegramM
+  )
 import Text.InterpolatedString.QM (qms)
 import Utils.Tabular (priceCheckTable)
 
@@ -100,11 +102,11 @@ type Effects m =
   , MonadIO m
   , MonadError Text m
   , TelegramClient m
-  , DB m
+  , DB.DB m
   , HasLogger m
   )
 
-type Authorized m = ReaderT Auth m
+type Authorized m = ReaderT DB.Auth m
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
@@ -112,8 +114,8 @@ tshow = T.pack . show
 startBot :: AppCtx Connection -> IO ()
 startBot ctx@AppCtx {..} = do
   logGeneric logger "INFO" config "Starting telegram bot"
-  forever $ handle 
-    do (\e -> logGeneric logger "ERROR" config $ tshow (e :: SomeException)) 
+  forever $ handle
+    do (\e -> logGeneric logger "ERROR" config $ tshow (e :: SomeException))
     do
       r <- runExceptT $ runReaderT (runAppM runBot) ctx
       case r of
@@ -122,12 +124,12 @@ startBot ctx@AppCtx {..} = do
       threadDelay 1000000
 
 executeBotAction :: Effects m => TelegramAction -> m ()
-executeBotAction (NoKeyboard (ReplyMessage Message{..} txt)) = sendMessage $ SendMessageRequest (chatId chat) txt True (Just messageId) Nothing
-executeBotAction (WithKeyboard (ReplyMessage Message{..} txt) kb) = sendMessage $ SendMessageRequest (chatId chat) txt True (Just messageId) (Just kb)
-executeBotAction (NoKeyboard (EditMessage Message{..} txt)) = editMessage $ EditMessageRequest (chatId chat) messageId txt Nothing
-executeBotAction (WithKeyboard (EditMessage Message{..} txt) kb) = editMessage $ EditMessageRequest (chatId chat) messageId txt (Just kb)
-executeBotAction (NoKeyboard (EditMessageReplyMarkup Message{..})) = editMessageReplyMarkup $ EditMessageReplyMarkupRequest (chatId chat) messageId Nothing
-executeBotAction (WithKeyboard (EditMessageReplyMarkup Message{..}) kb) = editMessageReplyMarkup $ EditMessageReplyMarkupRequest (chatId chat) messageId (Just kb)
+executeBotAction (NoKeyboard (ReplyMessage Message {..} txt)) = sendMessage $ SendMessageRequest (chatId chat) txt True (Just messageId) Nothing
+executeBotAction (WithKeyboard (ReplyMessage Message {..} txt) kb) = sendMessage $ SendMessageRequest (chatId chat) txt True (Just messageId) (Just kb)
+executeBotAction (NoKeyboard (EditMessage Message {..} txt)) = editMessage $ EditMessageRequest (chatId chat) messageId txt Nothing
+executeBotAction (WithKeyboard (EditMessage Message {..} txt) kb) = editMessage $ EditMessageRequest (chatId chat) messageId txt (Just kb)
+executeBotAction (NoKeyboard (EditMessageReplyMarkup Message {..})) = editMessageReplyMarkup $ EditMessageReplyMarkupRequest (chatId chat) messageId Nothing
+executeBotAction (WithKeyboard (EditMessageReplyMarkup Message {..}) kb) = editMessageReplyMarkup $ EditMessageReplyMarkupRequest (chatId chat) messageId (Just kb)
 executeBotAction NoAction = pure ()
 executeBotAction _ = error "Unimplemented action"
 
@@ -161,22 +163,23 @@ handleCommand "/pc" = lift . priceCheckCommand
 handleCommand "/listpc" = listPriceCheckCommand
 handleCommand "/confpc" = lift . configurePriceCheckCommand
 -- none
-handleCommand cmd = \m -> lift $ runTelegramM executeBotAction $ 
-  do pure $ NoKeyboard $ ReplyMessage m [qms|Unknown command: {cmd}|]
+handleCommand cmd = \m -> lift $
+  runTelegramM executeBotAction $
+    do pure $ NoKeyboard $ ReplyMessage m [qms|Unknown command: {cmd}|]
 
 trackCommand :: Effects m => Message -> Authorized m ()
 trackCommand m@Message {..} = do
-  Auth {..} <- ask
+  DB.Auth {..} <- ask
   lift $
     runTelegramM executeBotAction $ do
       url <- dieOnNothing (getEntity "url" m) $ NoKeyboard $ ReplyMessage m "No PoD url provided"
       trName <- dieOnNothing (getEntity "hashtag" m) $ NoKeyboard $ ReplyMessage m "No TrackRequest name provided"
-      userId' <- dieOnNothing (userId <$> from) NoAction 
-      query <- dieOnLeft 
+      userId' <- dieOnNothing (userId <$> from) NoAction
+      query <- dieOnLeft
         do parsePodUri url
         do \err -> NoKeyboard $ ReplyMessage m [qms|Could not parse url: {err}|]
       trLen <- lift $ length <$> DB.listTrackRequest userId'
-      dieIf 
+      dieIf
         do trLen >= fromIntegral aMaxTrackRequests
         do NoKeyboard $ ReplyMessage m [qms|Maximum number of track requests reached ({aMaxTrackRequests}). Track request denied.|]
       now <- liftIO getCurrentTime
@@ -185,7 +188,7 @@ trackCommand m@Message {..} = do
 
 listTrackCommand :: Effects m => Message -> Authorized m ()
 listTrackCommand m@Message {..} = do
-  Auth {..} <- ask
+  DB.Auth {..} <- ask
   lift $
     runTelegramM executeBotAction $ do
       userId' <- dieOnNothing (userId <$> from) NoAction
@@ -195,19 +198,19 @@ listTrackCommand m@Message {..} = do
 
 priceCheckCommand :: Effects m => Message -> m ()
 priceCheckCommand m@Message {..} = runTelegramM executeBotAction $ do
-      pcName' <- dieOnNothing (text >>= listToMaybe . drop 1 . T.words) (NoKeyboard $ ReplyMessage m "No price check name provided")
-      userId' <- dieOnNothing (userId <$> from) NoAction
-      mbPc <- lift $ DB.findPc userId' pcName'
-      DB.PriceCheck {..} <- dieOnNothing mbPc $ NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName'}|]
-      SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
-      let msg = "<pre>" <> priceCheckTable (hitToRow (fromMaybe "" pcConfig) <$> _hits) <> "</pre>"
-      pure $ NoKeyboard $ ReplyMessage m msg
+  pcName' <- dieOnNothing (text >>= listToMaybe . drop 1 . T.words) (NoKeyboard $ ReplyMessage m "No price check name provided")
+  userId' <- dieOnNothing (userId <$> from) NoAction
+  mbPc <- lift $ DB.findPc userId' pcName'
+  DB.PriceCheck {..} <- dieOnNothing mbPc $ NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName'}|]
+  SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
+  let msg = "<pre>" <> priceCheckTable (hitToRow (fromMaybe "" pcConfig) <$> _hits) <> "</pre>"
+  pure $ NoKeyboard $ ReplyMessage m msg
   where
     hitToRow cfg hit@Hit {..} = (_username, [applyConfig cfg hit, _note])
 
 addPriceCheckCommand :: Effects m => Message -> Authorized m ()
 addPriceCheckCommand m@Message {..} = do
-  Auth {..} <- ask
+  DB.Auth {..} <- ask
   lift $
     runTelegramM executeBotAction $ do
       url <- dieOnNothing (getEntity "url" m) $ NoKeyboard $ ReplyMessage m "No PoD url provided"
@@ -216,7 +219,7 @@ addPriceCheckCommand m@Message {..} = do
       userId' <- dieOnNothing (userId <$> from) NoAction
       pcLen <- lift $ length <$> DB.listPc userId'
       dieIf
-        do pcLen >= fromIntegral aMaxPriceChecks 
+        do pcLen >= fromIntegral aMaxPriceChecks
         do NoKeyboard $ ReplyMessage m [qms|Maximum number of price checks reached ({aMaxPriceChecks}). Price check denied.|]
       now <- liftIO getCurrentTime
       lift $ DB.savePc $ DB.PriceCheck Nothing userId' pcName url query Nothing now
@@ -224,8 +227,8 @@ addPriceCheckCommand m@Message {..} = do
 
 listPriceCheckCommand :: Effects m => Message -> Authorized m ()
 listPriceCheckCommand m@Message {..} = do
-  Auth {..} <- ask
-  lift $ 
+  DB.Auth {..} <- ask
+  lift $
     runTelegramM executeBotAction $ do
       userId' <- dieOnNothing (userId <$> from) NoAction
       t <- lift $ DB.listPc userId'
@@ -238,7 +241,7 @@ configurePriceCheckCommand m@Message {..} = do
     pcName' <- dieOnNothing (text >>= listToMaybe . drop 1 . T.words) (NoKeyboard $ ReplyMessage m "No price check name provided")
     userId' <- dieOnNothing (userId <$> from) NoAction
     mbPc <- lift $ DB.findPc userId' pcName'
-    DB.PriceCheck {..} <- dieOnNothing mbPc (NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName'}|])    
+    DB.PriceCheck {..} <- dieOnNothing mbPc (NoKeyboard $ ReplyMessage m [qms|No price check found with name: {pcName'}|])
     SearchResponse {..} <- liftIO $ doSearch pcSearchQuery
     let txtToBtn :: (Text, Text) -> InlineKeyboardButton -- needed, otherwise qms cannot understand that code is Text
         txtToBtn (code, label) =
@@ -287,7 +290,7 @@ deletePriceCheckCallback CallbackQuery {..} params = do
         lift . void $ DB.deletePc uid pcName
         t <- lift $ DB.listPc uid
         mbAuth <- lift $ DB.getAuth uid
-        DB.Auth{..} <- dieOnNothing mbAuth NoAction
+        DB.Auth {..} <- dieOnNothing mbAuth NoAction
         msg <- dieOnNothing cbkMessage NoAction
         let msgTxt = [qms|Price checks ({length t}/{aMaxPriceChecks}):\n|] <> mconcat (pcToListElem <$> t)
             kb = InlineKeyboardMarkup $ listToMatrix 2 $ pcToDeleteKeyboardBtn <$> t
@@ -328,7 +331,7 @@ deleteTrackRequestCallback CallbackQuery {..} params = do
         lift . void $ DB.deleteTrackRequest uid trId
         t <- lift $ DB.listTrackRequest uid
         mbAuth <- lift $ DB.getAuth uid
-        DB.Auth{..} <- dieOnNothing mbAuth NoAction
+        DB.Auth {..} <- dieOnNothing mbAuth NoAction
         msg <- dieOnNothing cbkMessage NoAction
         let msgTxt = [qms|Track requests ({length t}/{aMaxTrackRequests}):\n|] <> mconcat (trToListElem <$> t)
             kb = InlineKeyboardMarkup $ listToMatrix 2 $ trToDeleteKeyboardBtn <$> t
@@ -343,13 +346,13 @@ stopTrackRequestCallback CallbackQuery {..} params = do
         let uid = readDecimal $ params !! 1
             trId = params !! 2
         lift . void $ DB.deleteTrackRequest uid (readDecimal trId)
-        msg@Message{..} <- dieOnNothing cbkMessage NoAction
+        msg@Message {..} <- dieOnNothing cbkMessage NoAction
         let oldKb = inlineKeyboard $ fromMaybe (InlineKeyboardMarkup []) replyMarkup
             newKb = filter priceBtn oldKb
         pure $ WithKeyboard (EditMessageReplyMarkup msg) (InlineKeyboardMarkup newKb)
   where
     priceBtn [] = False
-    priceBtn ((InlineKeyboardButton "stop tracking" _ _):_) = False
+    priceBtn ((InlineKeyboardButton "stop tracking" _ _) : _) = False
     priceBtn _ = True
 
 listToMatrix :: Int -> [a] -> [[a]]
@@ -377,24 +380,24 @@ trToListElem DB.TrackRequest {..} = [qms|<a href="{trPodUrl}">{trName}</a>\n|]
 
 trToDeleteKeyboardBtn :: DB.TrackRequest -> InlineKeyboardButton
 trToDeleteKeyboardBtn DB.TrackRequest {..} =
-    InlineKeyboardButton
-      do [qms|delete: {trName}|]
-      do Nothing
-      do Just [qms|deleteTr,{trUserId},{fromMaybe (-1) trRequestId}|]
+  InlineKeyboardButton
+    do [qms|delete: {trName}|]
+    do Nothing
+    do Just [qms|deleteTr,{trUserId},{fromMaybe (-1) trRequestId}|]
 
 trToStopKeyboardBtn :: DB.TrackRequest -> InlineKeyboardButton
 trToStopKeyboardBtn DB.TrackRequest {..} =
-    InlineKeyboardButton
-      do [qms|delete: {trName}|]
-      do Nothing
-      do Just [qms|stopTracking,{trUserId},{fromMaybe (-1) trRequestId}|]
+  InlineKeyboardButton
+    do [qms|delete: {trName}|]
+    do Nothing
+    do Just [qms|stopTracking,{trUserId},{fromMaybe (-1) trRequestId}|]
 
 pcToListElem :: (Monoid a, IsString a) => DB.PriceCheck -> a
 pcToListElem DB.PriceCheck {..} = [qms|<a href="{pcUrl}">{pcName}</a>\n|]
 
 pcToDeleteKeyboardBtn :: DB.PriceCheck -> InlineKeyboardButton
-pcToDeleteKeyboardBtn DB.PriceCheck {..} = 
-  InlineKeyboardButton 
-    do [qms|delete:{pcName}|] 
-    do Nothing 
+pcToDeleteKeyboardBtn DB.PriceCheck {..} =
+  InlineKeyboardButton
+    do [qms|delete:{pcName}|]
+    do Nothing
     do Just [qms|deletePc,{pcUserId},{pcName}|]

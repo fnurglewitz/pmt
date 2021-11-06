@@ -11,10 +11,13 @@ import App.Config
   , Config (Config)
   , RenderConfig (RenderConfig, rnDpi, rnFontPath)
   )
-import App.Database (TrackRequest (trSearchQuery))
-import qualified App.Database as DB
-import App.Logging (HasLogger, logGeneric)
-import App.Monad (AppM (runAppM))
+import Database.Types (TrackRequest (trSearchQuery))
+import qualified Database.Types as DB
+import Logging.Types (HasLogger)
+import Logging.Logger ( logGeneric )
+import App.AppM (AppM (runAppM))
+import App.AppM.Database ()
+import App.AppM.Logging ()
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, handle)
 import Control.Monad (forever)

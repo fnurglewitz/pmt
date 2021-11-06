@@ -1,17 +1,10 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# OPTIONS_GHC -Wall #-}
 
 module Telegram.Monad where
 
-import App.Monad ( ReplyM, runReplyM )
+import App.ReplyM ( ReplyM, runReplyM )
 import qualified Data.ByteString as B
 import Data.Text (Text)
 import Telegram.Bot.Api.Types ( Message (..), InlineKeyboardMarkup(..) )

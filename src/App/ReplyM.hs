@@ -2,11 +2,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module App.Monad where
+module App.ReplyM where
 
-import App.Config (AppCtx)
 import Control.Monad.Except ( MonadError, throwError)
-import Control.Monad.Reader (MonadIO, MonadReader, ReaderT)
+import Control.Monad.Reader ( MonadIO )
 import Control.Monad.Trans.Except ( runExceptT, ExceptT )
 import Streaming
   ( MonadTrans (lift)
@@ -14,9 +13,6 @@ import Streaming
   , Stream
   )
 import qualified Streaming.Prelude as S
-
-newtype AppM x e m a = AppM {runAppM :: ReaderT (AppCtx x) (ExceptT e m) a}
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (AppCtx x), MonadError e)
 
 newtype ReplyM s e m a = ReplyM { unReplyM :: Stream (Of s) (ExceptT e m) a }
   deriving (Functor, Applicative, Monad, MonadError e, MonadIO)

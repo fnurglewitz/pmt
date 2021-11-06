@@ -5,18 +5,25 @@
 module Telegram.Bot.Auth where
 
 import App.Config
-import qualified App.Database as DB
-import App.Logging
-import Control.Monad.Except
-  ( MonadError (throwError),
+  ( AppCtx (..)
+  , Config (telegramCfg)
+  , TelegramConfig (tgAdmin)
   )
-import Control.Monad.Reader
-import Data.Maybe ( fromMaybe )
+import Control.Monad.Except
+  ( MonadError (throwError)
+  )
+import Control.Monad.Reader (MonadIO (..), MonadReader (ask))
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import Data.Time ( getCurrentTime )
-import Database.PostgreSQL.Simple
-import Telegram.Bot.Api.Client
+import Data.Time (getCurrentTime)
+import Database.PostgreSQL.Simple (Connection)
+import qualified Database.Types as DB
+import Logging.Types (HasLogger)
+import Telegram.Bot.Api.Client (TelegramClient (sendMessage))
 import Telegram.Bot.Api.Types
+  ( SendMessageRequest (SendMessageRequest)
+  , User (..)
+  )
 
 checkAuth :: (MonadReader (AppCtx Connection) m, MonadIO m, MonadError Text m, TelegramClient m, DB.DB m, HasLogger m) => User -> m DB.Auth
 checkAuth User {..} = do
