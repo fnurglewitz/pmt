@@ -166,7 +166,7 @@ instance (MonadIO m) => DB (AppM Connection e m) where
 
   listPc uid = do
     conn <- asks db
-    liftIO $ query conn "select pc_id, user_id, name, url, search_query, config from public.price_check where user_id = ?" [uid]
+    liftIO $ query conn "select pc_id, user_id, name, url, search_query, config, created_at from public.price_check where user_id = ?" [uid]
 
   deletePc uid name = do
     conn <- asks db
