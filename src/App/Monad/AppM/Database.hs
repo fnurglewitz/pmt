@@ -4,61 +4,44 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
-module App.Database where
+module App.Monad.AppM.Database where
 
-import App.Config (DatabaseConfig (..), db)
-import App.Monad (AppM)
+import App.Config ( DatabaseConfig(..), db )
+import App.Monad.AppM ( AppM )
 import Control.Monad (void)
 import Control.Monad.Reader (MonadIO, asks, liftIO)
 import Data.Functor ((<&>))
 import Data.Maybe (listToMaybe)
 import qualified Data.Set as S
-import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (getCurrentTime)
 import Database.PostgreSQL.Simple
-  ( ConnectInfo (ConnectInfo)
-  , Connection
-  , FromRow
+  ( Connection
+  , ConnectInfo(..)
   , In (In)
   , Only (fromOnly)
-  , ToRow
-  , connect
   , execute
   , execute_
   , executeMany
+  , connect
   , query
   , query_
   )
 import Database.PostgreSQL.Simple.SqlQQ (sql)
-import GHC.Generics (Generic)
-import PoD.Types (Hit (..), SearchQuery)
+import Database.Types
+    ( Auth(Auth, aUsername, aMaxTrackRequests, aMaxPriceChecks,
+           aEnabled, aRequestTs, aUserId),
+      PriceCheck(PriceCheck, pcCreatedAt, pcConfig, pcSearchQuery, pcUrl,
+                 pcName, pcUserId, pcId),
+      TrackRequest(TrackRequest, trCreatedAt, trLastTrackTs,
+                   trSearchQuery, trTracked, trPodUrl, trName, trUserId, trRequestId),
+      DB(..) )
+import PoD.Types (Hit (..))
 
 getConnection :: DatabaseConfig -> IO Connection
 getConnection DatabaseConfig {..} = connect $ ConnectInfo (T.unpack pgHost) 5432 (T.unpack pgUser) (T.unpack pgPass) (T.unpack pgDb)
-
-class (Monad m) => DB m where
-  saveAuth :: Auth -> m ()
-  getAuth :: Integer -> m (Maybe Auth)
-
-  saveTrackRequest :: TrackRequest -> m ()
-  listTrackRequest :: Integer -> m [TrackRequest]
-  deleteTrackRequest :: Integer -> Integer -> m ()
-  findOneToTrack :: m (Maybe TrackRequest)
-  setAsTracked :: Integer -> Integer -> UTCTime -> m ()
-  resetTrackRequests :: m ()
-
-  saveHit :: Hit -> m ()
-  findHit :: Text -> m (Maybe Hit)
-  findNewHitsForRequest :: Integer -> [Hit] -> m [Hit]
-  saveHitsForRequest :: Integer -> [Hit] -> m ()
-
-  savePc :: PriceCheck -> m ()
-  findPc :: Integer -> Text -> m (Maybe PriceCheck)
-  listPc :: Integer -> m [PriceCheck]
-  deletePc :: Integer -> Text -> m ()
-  configurePc :: Integer -> Text -> Maybe Text -> m ()
 
 instance (MonadIO m) => DB (AppM Connection e m) where
   saveAuth Auth {..} = do
@@ -175,36 +158,3 @@ instance (MonadIO m) => DB (AppM Connection e m) where
   configurePc uid name config = do
     conn <- asks db
     void $ liftIO $ execute conn "update public.price_check set config = ? where user_id = ? and name = ?" (config, uid, name)
-
-data TrackRequest = TrackRequest
-  { trRequestId :: Maybe Integer
-  , trUserId :: Integer
-  , trName :: Text
-  , trPodUrl :: Text
-  , trTracked :: Bool
-  , trSearchQuery :: SearchQuery
-  , trLastTrackTs :: UTCTime
-  , trCreatedAt :: UTCTime
-  }
-  deriving (Generic, FromRow, ToRow, Show)
-
-data PriceCheck = PriceCheck
-  { pcId :: Maybe Integer
-  , pcUserId :: Integer
-  , pcName :: Text
-  , pcUrl :: Text
-  , pcSearchQuery :: SearchQuery
-  , pcConfig :: Maybe Text
-  , pcCreatedAt :: UTCTime
-  }
-  deriving (Generic, FromRow, ToRow, Show)
-
-data Auth = Auth
-  { aUserId :: Integer
-  , aRequestTs :: UTCTime
-  , aEnabled :: Bool
-  , aMaxPriceChecks :: Integer
-  , aMaxTrackRequests :: Integer
-  , aUsername :: Text
-  }
-  deriving (Generic, FromRow, ToRow, Show)

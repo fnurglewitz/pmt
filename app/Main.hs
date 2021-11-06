@@ -4,8 +4,9 @@
 module Main where
 
 import App.Config
-import App.Database
-import App.Logging
+import App.Monad.AppM
+import App.Monad.AppM.Database ( getConnection )
+import App.Monad.AppM.Logging ( getLoggerSet )
 import Control.Applicative ((<|>))
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar

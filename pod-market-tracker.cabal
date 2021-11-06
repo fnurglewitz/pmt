@@ -26,9 +26,13 @@ library
     -Wall
   exposed-modules:
     App.Config
-    App.Database
-    App.Logging
-    App.Monad
+    App.Monad.AppM
+    App.Monad.AppM.Database
+    App.Monad.AppM.Logging
+    App.Monad.ReplyM
+    Database.Types
+    Logging.Logger
+    Logging.Types
     PoD.Api
     PoD.Parser
     PoD.Rendering

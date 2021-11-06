@@ -12,10 +12,10 @@
 module Telegram.Bot.Bot where
 
 import App.Config ( AppCtx (..) )                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
-import App.Database (Auth (..), DB)
-import qualified App.Database as DB
-import App.Logging (HasLogger (logError), logGeneric)
-import App.Monad
+import App.Monad.AppM
+import App.Monad.AppM.Database ()
+import App.Monad.AppM.Logging ()
+import App.Monad.ReplyM
 import Control.Concurrent (threadDelay)
 import Control.Monad.Except
   ( MonadError (throwError)
@@ -36,6 +36,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.PostgreSQL.Simple (Connection)
+import qualified Database.Types as DB
+import Logging.Logger
+import Logging.Types
 import PoD.Api (doSearch)
 import PoD.Parser (parsePodUri)
 import PoD.Types
@@ -100,11 +103,11 @@ type Effects m =
   , MonadIO m
   , MonadError Text m
   , TelegramClient m
-  , DB m
+  , DB.DB m
   , HasLogger m
   )
 
-type Authorized m = ReaderT Auth m
+type Authorized m = ReaderT DB.Auth m
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
@@ -166,7 +169,7 @@ handleCommand cmd = \m -> lift $ runTelegramM executeBotAction $
 
 trackCommand :: Effects m => Message -> Authorized m ()
 trackCommand m@Message {..} = do
-  Auth {..} <- ask
+  DB.Auth {..} <- ask
   lift $
     runTelegramM executeBotAction $ do
       url <- dieOnNothing (getEntity "url" m) $ NoKeyboard $ ReplyMessage m "No PoD url provided"
@@ -185,7 +188,7 @@ trackCommand m@Message {..} = do
 
 listTrackCommand :: Effects m => Message -> Authorized m ()
 listTrackCommand m@Message {..} = do
-  Auth {..} <- ask
+  DB.Auth {..} <- ask
   lift $
     runTelegramM executeBotAction $ do
       userId' <- dieOnNothing (userId <$> from) NoAction
@@ -207,7 +210,7 @@ priceCheckCommand m@Message {..} = runTelegramM executeBotAction $ do
 
 addPriceCheckCommand :: Effects m => Message -> Authorized m ()
 addPriceCheckCommand m@Message {..} = do
-  Auth {..} <- ask
+  DB.Auth {..} <- ask
   lift $
     runTelegramM executeBotAction $ do
       url <- dieOnNothing (getEntity "url" m) $ NoKeyboard $ ReplyMessage m "No PoD url provided"
@@ -224,7 +227,7 @@ addPriceCheckCommand m@Message {..} = do
 
 listPriceCheckCommand :: Effects m => Message -> Authorized m ()
 listPriceCheckCommand m@Message {..} = do
-  Auth {..} <- ask
+  DB.Auth {..} <- ask
   lift $ 
     runTelegramM executeBotAction $ do
       userId' <- dieOnNothing (userId <$> from) NoAction

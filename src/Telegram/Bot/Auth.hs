@@ -5,8 +5,6 @@
 module Telegram.Bot.Auth where
 
 import App.Config
-import qualified App.Database as DB
-import App.Logging
 import Control.Monad.Except
   ( MonadError (throwError),
   )
@@ -15,6 +13,8 @@ import Data.Maybe ( fromMaybe )
 import Data.Text (Text)
 import Data.Time ( getCurrentTime )
 import Database.PostgreSQL.Simple
+import qualified Database.Types as DB
+import Logging.Types
 import Telegram.Bot.Api.Client
 import Telegram.Bot.Api.Types
 
