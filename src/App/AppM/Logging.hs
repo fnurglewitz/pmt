@@ -3,20 +3,20 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module App.Monad.AppM.Logging where
+module App.AppM.Logging where
 
 import App.Config
-  ( AppCtx (AppCtx),
-    Config (Config, appName, appVersion, env, logLevel),
+  ( AppCtx (AppCtx)
+  , Config (Config, appName, appVersion, env, logLevel)
   )
-import App.Monad.AppM ( AppM )
+import App.AppM.Type (AppM)
 import Control.Monad.Reader (MonadIO, ask, liftIO)
-import Logging.Types ( LogLevel(DEBUG, INFO, ERROR), HasLogger(..) )
-import Logging.Logger ( logAction )
+import Logging.Logger (logAction)
+import Logging.Types (HasLogger (..), LogLevel (DEBUG, ERROR, INFO))
 import System.Log.FastLogger
-  ( LoggerSet,
-    defaultBufSize,
-    newStdoutLoggerSet,
+  ( LoggerSet
+  , defaultBufSize
+  , newStdoutLoggerSet
   )
 
 getLoggerSet :: IO LoggerSet

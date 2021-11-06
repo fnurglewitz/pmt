@@ -6,14 +6,14 @@
 module Telegram.Bot.Api.Types where
 
 import Data.Aeson
-  ( FromJSON (parseJSON),
-    KeyValue ((.=)),
-    ToJSON (toJSON),
-    Value (Null),
-    object,
-    withObject,
-    (.:),
-    (.:?),
+  ( FromJSON (parseJSON)
+  , KeyValue ((.=))
+  , ToJSON (toJSON)
+  , Value (Null)
+  , object
+  , withObject
+  , (.:)
+  , (.:?)
   )
 import qualified Data.ByteString as B
 import Data.List (find)
@@ -28,8 +28,8 @@ instance IsString Token where
   fromString = Token . T.pack
 
 data TelegramResponse a = TelegramResponse
-  { ok :: Bool,
-    result :: a
+  { ok :: Bool
+  , result :: a
   }
   deriving (Eq, Show, Generic)
 
@@ -44,9 +44,9 @@ instance (ToJSON a) => ToJSON (TelegramResponse a) where
     object ["ok" .= ok, "result" .= res]
 
 data Update = Update
-  { updateId :: Integer,
-    message :: Maybe Message,
-    callbackQuery :: Maybe CallbackQuery
+  { updateId :: Integer
+  , message :: Maybe Message
+  , callbackQuery :: Maybe CallbackQuery
   }
   deriving (Eq, Show, Generic)
 
@@ -62,10 +62,10 @@ instance ToJSON Update where
     object $ Prelude.filter ((/= Null) . snd) ["update_id" .= uid, "message" .= msg, "callback_query" .= cbk]
 
 data CallbackQuery = CallbackQuery
-  { cbkId :: Text,
-    cbkFrom :: User,
-    cbkMessage :: Maybe Message,
-    cbkData :: Maybe Text
+  { cbkId :: Text
+  , cbkFrom :: User
+  , cbkMessage :: Maybe Message
+  , cbkData :: Maybe Text
   }
   deriving (Eq, Show, Generic)
 
@@ -82,13 +82,13 @@ instance ToJSON CallbackQuery where
     object $ Prelude.filter ((/= Null) . snd) ["id" .= cbkId, "from" .= cbkFrom, "message" .= cbkMessage, "data" .= cbkData]
 
 data Message = Message
-  { messageId :: Integer,
-    from :: Maybe User,
-    date :: Integer,
-    chat :: Chat,
-    text :: Maybe Text,
-    entities :: Maybe [MessageEntity],
-    replyMarkup :: Maybe InlineKeyboardMarkup
+  { messageId :: Integer
+  , from :: Maybe User
+  , date :: Integer
+  , chat :: Chat
+  , text :: Maybe Text
+  , entities :: Maybe [MessageEntity]
+  , replyMarkup :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show, Generic)
 
@@ -108,12 +108,12 @@ instance ToJSON Message where
     object $ Prelude.filter ((/= Null) . snd) ["message_id" .= messageId, "from" .= from, "date" .= date, "chat" .= chat, "text" .= text, "entities" .= entities, "reply_markup" .= replyMarkup]
 
 data MessageEntity = MessageEntity
-  { eType :: Text,
-    eOffset :: Integer,
-    eLength :: Integer,
-    eUrl :: Maybe Text,
-    eUser :: Maybe User,
-    eLanguage :: Maybe Text
+  { eType :: Text
+  , eOffset :: Integer
+  , eLength :: Integer
+  , eUrl :: Maybe Text
+  , eUser :: Maybe User
+  , eLanguage :: Maybe Text
   }
   deriving (Eq, Show, Generic)
 
@@ -132,11 +132,11 @@ instance ToJSON MessageEntity where
     object $ Prelude.filter ((/= Null) . snd) ["type" .= eType, "offset" .= eOffset, "length" .= eLength, "url" .= eUrl, "user" .= eUser, "language" .= eLanguage]
 
 data User = User
-  { userId :: Integer,
-    isBot :: Bool,
-    firstName :: Text,
-    lastName :: Maybe Text,
-    username :: Maybe Text
+  { userId :: Integer
+  , isBot :: Bool
+  , firstName :: Text
+  , lastName :: Maybe Text
+  , username :: Maybe Text
   }
   deriving (Eq, Show, Generic)
 
@@ -154,8 +154,8 @@ instance ToJSON User where
     object $ Prelude.filter ((/= Null) . snd) ["id" .= userId, "is_bot" .= isBot, "first_name" .= firstName, "last_name" .= lastName, "username" .= username]
 
 data Chat = Chat
-  { chatId :: Integer,
-    chatType :: Text
+  { chatId :: Integer
+  , chatType :: Text
   }
   deriving (Eq, Show, Generic)
 
@@ -170,34 +170,35 @@ instance ToJSON Chat where
     object $ Prelude.filter ((/= Null) . snd) ["id" .= chatId, "type" .= chatType]
 
 data SendPhotoRequest = SendPhotoRequest
-  { pChatId :: Integer,
-    content :: B.ByteString,
-    pInlineKeyboard :: Maybe InlineKeyboardMarkup
+  { pChatId :: Integer
+  , content :: B.ByteString
+  , pInlineKeyboard :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show)
 
 data SendMessageRequest = SendMessageRequest
-  { mChatId :: Integer,
-    mText :: Text,
-    mDisableNotification :: Bool,
-    mReplyToMsgId :: Maybe Integer,
-    mInlineKeyboard :: Maybe InlineKeyboardMarkup
+  { mChatId :: Integer
+  , mText :: Text
+  , mDisableNotification :: Bool
+  , mReplyToMsgId :: Maybe Integer
+  , mInlineKeyboard :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show)
 
 data EditMessageRequest = EditMessageRequest
-  { eChatId :: Integer,
-    eMessageId :: Integer,
-    eText :: Text,
-    eInlineKeyboard :: Maybe InlineKeyboardMarkup
+  { eChatId :: Integer
+  , eMessageId :: Integer
+  , eText :: Text
+  , eInlineKeyboard :: Maybe InlineKeyboardMarkup
   }
   deriving (Eq, Show)
 
-data EditMessageReplyMarkupRequest = EditMessageReplyMarkupRequest {
-    rChatId :: Integer,
-    rMessageId :: Integer,
-    rInlineKeyboard :: Maybe InlineKeyboardMarkup  
-} deriving (Eq, Show)
+data EditMessageReplyMarkupRequest = EditMessageReplyMarkupRequest
+  { rChatId :: Integer
+  , rMessageId :: Integer
+  , rInlineKeyboard :: Maybe InlineKeyboardMarkup
+  }
+  deriving (Eq, Show)
 
 newtype InlineKeyboardMarkup = InlineKeyboardMarkup
   { inlineKeyboard :: [[InlineKeyboardButton]]
@@ -214,9 +215,9 @@ instance ToJSON InlineKeyboardMarkup where
     object ["inline_keyboard" .= ik]
 
 data InlineKeyboardButton = InlineKeyboardButton
-  { btnText :: Text,
-    btnUrl :: Maybe Text,
-    btnCbkData :: Maybe Text
+  { btnText :: Text
+  , btnUrl :: Maybe Text
+  , btnCbkData :: Maybe Text
   }
   deriving (Eq, Show, Generic)
 

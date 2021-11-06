@@ -18,7 +18,7 @@ import App.Config
   , Config (telegramCfg)
   , TelegramConfig (TelegramConfig)
   )
-import App.Monad.AppM (AppM)
+import App.AppM (AppM)
 import Control.Arrow (left)
 import Control.Concurrent.MVar (readMVar, swapMVar)
 import Control.Exception (catch)

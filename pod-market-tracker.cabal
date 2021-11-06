@@ -26,10 +26,11 @@ library
     -Wall
   exposed-modules:
     App.Config
-    App.Monad.AppM
-    App.Monad.AppM.Database
-    App.Monad.AppM.Logging
-    App.Monad.ReplyM
+    App.AppM
+    App.AppM.Type
+    App.AppM.Database
+    App.AppM.Logging
+    App.ReplyM
     Database.Types
     Logging.Logger
     Logging.Types

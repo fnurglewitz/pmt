@@ -2,11 +2,11 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module App.Monad.ReplyM where
+module App.ReplyM where
 
-import Control.Monad.Except ( MonadError, throwError)
-import Control.Monad.Reader ( MonadIO )
-import Control.Monad.Trans.Except ( runExceptT, ExceptT )
+import Control.Monad.Except (MonadError, throwError)
+import Control.Monad.Reader (MonadIO)
+import Control.Monad.Trans.Except (ExceptT, runExceptT)
 import Streaming
   ( MonadTrans (lift)
   , Of
@@ -14,14 +14,14 @@ import Streaming
   )
 import qualified Streaming.Prelude as S
 
-newtype ReplyM s e m a = ReplyM { unReplyM :: Stream (Of s) (ExceptT e m) a }
+newtype ReplyM s e m a = ReplyM {unReplyM :: Stream (Of s) (ExceptT e m) a}
   deriving (Functor, Applicative, Monad, MonadError e, MonadIO)
 
 instance MonadTrans (ReplyM s e) where
   lift = ReplyM . lift . lift
 
 -- the output of the handler is the success message
-runReplyM :: Monad m => (s -> m ()) -> (e-> m ()) -> (a-> m ()) -> ReplyM s e m a -> m ()
+runReplyM :: Monad m => (s -> m ()) -> (e -> m ()) -> (a -> m ()) -> ReplyM s e m a -> m ()
 runReplyM fs fe fa (unReplyM -> handler) = do
   action <- runExceptT $ S.mapM_
     do lift . fs

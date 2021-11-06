@@ -6,10 +6,10 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
-module App.Monad.AppM.Database where
+module App.AppM.Database where
 
-import App.Config ( DatabaseConfig(..), db )
-import App.Monad.AppM ( AppM )
+import App.Config (DatabaseConfig (..), db)
+import App.AppM.Type (AppM)
 import Control.Monad (void)
 import Control.Monad.Reader (MonadIO, asks, liftIO)
 import Data.Functor ((<&>))
@@ -18,26 +18,51 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.PostgreSQL.Simple
-  ( Connection
-  , ConnectInfo(..)
+  ( ConnectInfo (..)
+  , Connection
   , In (In)
   , Only (fromOnly)
-  , execute
-  , execute_
-  , executeMany
   , connect
+  , execute
+  , executeMany
+  , execute_
   , query
   , query_
   )
 import Database.PostgreSQL.Simple.SqlQQ (sql)
 import Database.Types
-    ( Auth(Auth, aUsername, aMaxTrackRequests, aMaxPriceChecks,
-           aEnabled, aRequestTs, aUserId),
-      PriceCheck(PriceCheck, pcCreatedAt, pcConfig, pcSearchQuery, pcUrl,
-                 pcName, pcUserId, pcId),
-      TrackRequest(TrackRequest, trCreatedAt, trLastTrackTs,
-                   trSearchQuery, trTracked, trPodUrl, trName, trUserId, trRequestId),
-      DB(..) )
+  ( Auth
+      ( Auth
+      , aEnabled
+      , aMaxPriceChecks
+      , aMaxTrackRequests
+      , aRequestTs
+      , aUserId
+      , aUsername
+      )
+  , DB (..)
+  , PriceCheck
+      ( PriceCheck
+      , pcConfig
+      , pcCreatedAt
+      , pcId
+      , pcName
+      , pcSearchQuery
+      , pcUrl
+      , pcUserId
+      )
+  , TrackRequest
+      ( TrackRequest
+      , trCreatedAt
+      , trLastTrackTs
+      , trName
+      , trPodUrl
+      , trRequestId
+      , trSearchQuery
+      , trTracked
+      , trUserId
+      )
+  )
 import PoD.Types (Hit (..))
 
 getConnection :: DatabaseConfig -> IO Connection
@@ -110,7 +135,11 @@ instance (MonadIO m) => DB (AppM Connection e m) where
 
   findNewHitsForRequest rid hits = do
     conn <- asks db
-    existing <- liftIO $ query conn [sql|
+    existing <-
+      liftIO $
+        query
+          conn
+          [sql|
           select B.hit
           from
             public.track_request_hit A
@@ -118,7 +147,8 @@ instance (MonadIO m) => DB (AppM Connection e m) where
           where 
                   A.request_id = ? 
               and A.trade_id in ?
-          |] (rid, In $ _tradeId <$> hits)
+          |]
+          (rid, In $ _tradeId <$> hits)
     return $ findNew (fromOnly <$> existing)
     where
       findNew t = S.toList $ S.fromList hits S.\\ S.fromList t
@@ -129,9 +159,10 @@ instance (MonadIO m) => DB (AppM Connection e m) where
       liftIO $
         executeMany
           conn
-          [sql| INSERT INTO public.track_request_hit (request_id, trade_id, note) VALUES (?, ?, ?)|] (hitToRow <$> hits)
+          [sql| INSERT INTO public.track_request_hit (request_id, trade_id, note) VALUES (?, ?, ?)|]
+          (hitToRow <$> hits)
     where
-      hitToRow Hit{..} = (rid, _tradeId, _note)
+      hitToRow Hit {..} = (rid, _tradeId, _note)
 
   savePc PriceCheck {..} = do
     conn <- asks db
